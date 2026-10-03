@@ -70,8 +70,8 @@ Source: "{#Root}\artifacts\publish\win-x64\KariyerTakip.exe"; DestDir: "{app}"; 
 #ifndef X64Only
 Source: "{#Root}\artifacts\publish\win-arm64\KariyerTakip.exe"; DestDir: "{app}"; Flags: ignoreversion; Check: UseArm64
 #endif
-Source: "{#Root}\artifacts\publish\win-x64\appsettings.example.json"; DestDir: "{app}"; Flags: ignoreversion
-Source: "{#Root}\artifacts\publish\win-x64\profile.example.json"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#Root}\appsettings.example.json"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#Root}\profile.example.json"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#Root}\Assets\kt.ico"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#Root}\README.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#Root}\CHANGELOG.md"; DestDir: "{app}"; Flags: ignoreversion
