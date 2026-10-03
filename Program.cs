@@ -3,6 +3,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using KariyerTakip.Common;
 using KariyerTakip.Forms;
 using KariyerTakip.Models;
 using KariyerTakip.Services;
@@ -13,17 +14,23 @@ namespace KariyerTakip;
 public static class Program
 {
     [STAThread]
-    public static void Main(string[] args)
+    public static int Main(string[] args)
     {
-        ApplicationConfiguration.Initialize();
+        var isHeadless = args.Any(a => a.Equals("--scan-once", StringComparison.OrdinalIgnoreCase) ||
+                                       a.Equals("--headless", StringComparison.OrdinalIgnoreCase));
+
+        if (!isHeadless)
+        {
+            ApplicationConfiguration.Initialize();
+        }
 
         var builder = Host.CreateApplicationBuilder(args);
 
-        // 1. Configuration files
+        // 1. Configuration files from deterministic AppPaths
         builder.Configuration
-            .SetBasePath(AppContext.BaseDirectory)
-            .AddJsonFile("appsettings.json", optional: false, reloadOnChange: true)
-            .AddJsonFile("profile.json", optional: false, reloadOnChange: true)
+            .SetBasePath(AppPaths.BaseDirectory)
+            .AddJsonFile("appsettings.json", optional: true, reloadOnChange: true)
+            .AddJsonFile("profile.json", optional: true, reloadOnChange: true)
             .AddEnvironmentVariables(prefix: "KARIYERTAKIP_");
 
         // 2. Options bindings
@@ -47,13 +54,29 @@ public static class Program
         builder.Services.AddSingleton<NotificationDispatcher>();
         builder.Services.AddSingleton<ScanCoordinator>();
 
-        // 5. Register GUI Form
-        builder.Services.AddSingleton<MainForm>();
+        if (!isHeadless)
+        {
+            builder.Services.AddSingleton<MainForm>();
+        }
 
         var host = builder.Build();
 
-        // 6. Run GUI Application
-        var mainForm = host.Services.GetRequiredService<MainForm>();
-        Application.Run(mainForm);
+        // 5. Execution mode
+        if (isHeadless)
+        {
+            var logger = host.Services.GetRequiredService<ILogger<ScanCoordinator>>();
+            logger.LogInformation("KariyerTakip --scan-once modunda başlatıldı (Görev Zamanlayıcı / Headless).");
+
+            var coordinator = host.Services.GetRequiredService<ScanCoordinator>();
+            var result = coordinator.RunScanAsync().GetAwaiter().GetResult();
+
+            return result.Status == ScanStatus.Success ? 0 : 1;
+        }
+        else
+        {
+            var mainForm = host.Services.GetRequiredService<MainForm>();
+            Application.Run(mainForm);
+            return 0;
+        }
     }
 }

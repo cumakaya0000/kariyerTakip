@@ -1,10 +1,33 @@
 using System.Net.Http.Json;
 using System.Text.Encodings.Web;
+using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using KariyerTakip.Models;
 
 namespace KariyerTakip.Services;
+
+public enum TelegramSendStatus
+{
+    Success,
+    Disabled,
+    TransientFailure,
+    PermanentFailure
+}
+
+public class TelegramSendResult
+{
+    public TelegramSendStatus Status { get; set; }
+    public string? ErrorMessage { get; set; }
+    public int? StatusCode { get; set; }
+
+    public bool IsSuccess => Status == TelegramSendStatus.Success;
+
+    public static TelegramSendResult Ok() => new() { Status = TelegramSendStatus.Success };
+    public static TelegramSendResult Disabled() => new() { Status = TelegramSendStatus.Disabled, ErrorMessage = "Telegram yapılandırılmamış veya devre dışı bırakılmış." };
+    public static TelegramSendResult Transient(string error, int? code = null) => new() { Status = TelegramSendStatus.TransientFailure, ErrorMessage = error, StatusCode = code };
+    public static TelegramSendResult Permanent(string error, int? code = null) => new() { Status = TelegramSendStatus.PermanentFailure, ErrorMessage = error, StatusCode = code };
+}
 
 public class TelegramNotifier
 {
@@ -23,46 +46,66 @@ public class TelegramNotifier
                                 !string.IsNullOrWhiteSpace(_telegramOptions.BotToken) &&
                                 !string.IsNullOrWhiteSpace(_telegramOptions.ChatId);
 
-    public async Task<bool> SendMessageAsync(string htmlMessage, CancellationToken cancellationToken = default)
+    public async Task<TelegramSendResult> SendMessageAsync(string htmlMessage, CancellationToken cancellationToken = default)
     {
         if (!IsConfigured)
         {
-            _logger.LogInformation("[Telegram Kapalı/Yapılandırılmamış] Gönderilecek Mesaj:\n{Message}", htmlMessage);
-            return true;
+            _logger.LogInformation("[Telegram Kapalı/Yapılandırılmamış] Mesaj gönderilmedi.");
+            return TelegramSendResult.Disabled();
         }
 
         try
         {
-            var url = $"https://api.telegram.org/bot{_telegramOptions.BotToken}/sendMessage";
-            var payload = new
+            var chunks = SplitMessage(htmlMessage, 4000);
+            foreach (var chunk in chunks)
             {
-                chat_id = _telegramOptions.ChatId,
-                text = htmlMessage,
-                parse_mode = "HTML",
-                disable_web_page_preview = false
-            };
+                var url = $"https://api.telegram.org/bot{_telegramOptions.BotToken}/sendMessage";
+                var payload = new
+                {
+                    chat_id = _telegramOptions.ChatId,
+                    text = chunk,
+                    parse_mode = "HTML",
+                    disable_web_page_preview = false
+                };
 
-            var response = await _httpClient.PostAsJsonAsync(url, payload, cancellationToken);
-            if (response.IsSuccessStatusCode)
-            {
-                _logger.LogInformation("Telegram bildirimi başarıyla iletildi.");
-                return true;
+                var response = await _httpClient.PostAsJsonAsync(url, payload, cancellationToken);
+
+                if (response.IsSuccessStatusCode)
+                {
+                    continue;
+                }
+
+                var err = await response.Content.ReadAsStringAsync(cancellationToken);
+                var statusCode = (int)response.StatusCode;
+
+                _logger.LogError("Telegram bildirimi gönderilemedi: {StatusCode} - {Error}", statusCode, err);
+
+                if (statusCode == 429 || statusCode >= 500)
+                {
+                    return TelegramSendResult.Transient(err, statusCode);
+                }
+
+                return TelegramSendResult.Permanent(err, statusCode);
             }
 
-            var err = await response.Content.ReadAsStringAsync(cancellationToken);
-            _logger.LogError("Telegram bildirimi gönderilemedi: {StatusCode} - {Error}", response.StatusCode, err);
-            return false;
+            _logger.LogInformation("Telegram bildirimi başarıyla iletildi.");
+            return TelegramSendResult.Ok();
+        }
+        catch (HttpRequestException ex)
+        {
+            _logger.LogWarning(ex, "Telegram ağına erişirken geçici hata oluştu.");
+            return TelegramSendResult.Transient(ex.Message);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Telegram mesajı gönderilirken istisna oluştu.");
-            return false;
+            return TelegramSendResult.Permanent(ex.Message);
         }
     }
 
     public string FormatAnnouncementMessage(
         AnnouncementRecord announcement,
-        List<PositionEvaluation> matchingPositions,
+        List<PositionEvaluation> positions,
         string notificationHeader = "📢 <b>YENİ UYGUN KAMU İLANI</b>")
     {
         var sb = new System.Text.StringBuilder();
@@ -76,11 +119,22 @@ public class TelegramNotifier
         sb.AppendLine($"📋 <b>İlan:</b> {HtmlEncode(announcement.Title)}");
         sb.AppendLine();
 
-        sb.AppendLine("🎯 <b>Uygun / Değerlendirilen Kadrolar:</b>");
-        foreach (var pos in matchingPositions)
+        sb.AppendLine("🎯 <b>Kadro ve Şart Detayları:</b>");
+        foreach (var pos in positions)
         {
-            var statusIcon = pos.Status == EligibilityStatus.Eligible ? "✅" : "⚠️";
-            var statusText = pos.Status == EligibilityStatus.Eligible ? "ŞARTLARA UYGUN" : "KONTROL GEREKLİ";
+            var statusIcon = pos.Status switch
+            {
+                EligibilityStatus.Eligible => "✅",
+                EligibilityStatus.NeedsReview => "⚠️",
+                _ => "❌"
+            };
+
+            var statusText = pos.Status switch
+            {
+                EligibilityStatus.Eligible => "ŞARTLARA UYGUN",
+                EligibilityStatus.NeedsReview => "KONTROL GEREKLİ",
+                _ => "UYGUN DEĞİL"
+            };
 
             sb.AppendLine($"{statusIcon} <b>{HtmlEncode(pos.PositionTitle)}</b> [{statusText}]");
             if (!string.IsNullOrWhiteSpace(pos.Unvan))
@@ -101,13 +155,13 @@ public class TelegramNotifier
         sb.AppendLine();
 
         sb.AppendLine("🔗 <b>Bağlantılar:</b>");
-        if (!string.IsNullOrWhiteSpace(announcement.DetailUrl))
+        if (IsValidUrl(announcement.DetailUrl))
         {
-            sb.AppendLine($"   • <a href=\"{announcement.DetailUrl}\">Kariyer Kapısı İlan Detayı</a>");
+            sb.AppendLine($"   • <a href=\"{HtmlAttributeEncode(announcement.DetailUrl)}\">Kariyer Kapısı İlan Detayı</a>");
         }
-        if (!string.IsNullOrWhiteSpace(announcement.ApplicationUrl))
+        if (IsValidUrl(announcement.ApplicationUrl))
         {
-            sb.AppendLine($"   • <a href=\"{announcement.ApplicationUrl}\">Resmî Başvuru / e-Devlet Ekranı</a>");
+            sb.AppendLine($"   • <a href=\"{HtmlAttributeEncode(announcement.ApplicationUrl)}\">Resmî Başvuru / e-Devlet Ekranı</a>");
         }
 
         sb.AppendLine();
@@ -116,13 +170,55 @@ public class TelegramNotifier
         return sb.ToString();
     }
 
-    private string HtmlEncode(string? text)
+    private static List<string> SplitMessage(string text, int maxChunkSize)
     {
-        if (string.IsNullOrEmpty(text))
-            return string.Empty;
+        var list = new List<string>();
+        if (text.Length <= maxChunkSize)
+        {
+            list.Add(text);
+            return list;
+        }
+
+        var lines = text.Split(new[] { "\r\n", "\n" }, StringSplitOptions.None);
+        var current = new System.Text.StringBuilder();
+
+        foreach (var line in lines)
+        {
+            if (current.Length + line.Length + 1 > maxChunkSize)
+            {
+                list.Add(current.ToString());
+                current.Clear();
+            }
+            current.AppendLine(line);
+        }
+
+        if (current.Length > 0)
+        {
+            list.Add(current.ToString());
+        }
+
+        return list;
+    }
+
+    private static bool IsValidUrl(string? url)
+    {
+        if (string.IsNullOrWhiteSpace(url)) return false;
+        return Uri.TryCreate(url, UriKind.Absolute, out var uriResult) &&
+               (uriResult.Scheme == Uri.UriSchemeHttp || uriResult.Scheme == Uri.UriSchemeHttps);
+    }
+
+    private static string HtmlEncode(string? text)
+    {
+        if (string.IsNullOrEmpty(text)) return string.Empty;
         return text
             .Replace("&", "&amp;")
             .Replace("<", "&lt;")
             .Replace(">", "&gt;");
+    }
+
+    private static string HtmlAttributeEncode(string? text)
+    {
+        if (string.IsNullOrEmpty(text)) return string.Empty;
+        return HtmlEncode(text).Replace("\"", "&quot;").Replace("'", "&#39;");
     }
 }

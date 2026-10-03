@@ -1,35 +1,40 @@
-# 💼 KariyerTakip — Kişisel Kamu İlan ve Kadro Asistanı
+# 💼 KariyerTakip — Kişisel Kamu İlan ve Kadro Uygunluk Asistanı
 
-**KariyerTakip**, T.C. Cumhurbaşkanlığı İnsan Kaynakları Ofisi **Kariyer Kapısı Kamu İşe Alım Portalı** üzerindeki aktif ilanları otomatik olarak tarayan, ilan metinleri ile kadro tablolarını analiz eden ve kullanıcının profiline göre (bölüm, ön lisans/lisans, KPSS P93 puanı, tecrübe, şehir vb.) uygun kadroları tespit edip masaüstü arayüzünde listeleyen ve Telegram üzerinden anlık bildiren **C# / .NET 10 LTS** tabanlı bir masaüstü uygulamasıdır.
+**KariyerTakip**, T.C. Cumhurbaşkanlığı İnsan Kaynakları Ofisi **Kariyer Kapısı Kamu İşe Alım Portalı** üzerindeki aktif ilanları ve bu ilanlara ait tüm alt kadroları tarayan, ilan metinlerini ve kadro tablolarını kurallarla ayrıştırıp kullanıcının profiline göre (bölüm, ön lisans/lisans, KPSS P93 puanı/sınav yılı, mesleki tecrübe, yaş, ehliyet ve şehir) değerlendiren, sonuçları yerel SQLite veritabanında saklayan, masaüstü arayüzünde listeleyen ve Telegram üzerinden bildiren **C# / .NET 10 LTS** tabanlı bir masaüstü uygulamasıdır.
 
 ---
 
-## 🌟 Öne Çıkan Özellikler
+## 🌟 Öne Çıkan Özellikler ve Mimari İyileştirmeler
 
-- 🖥️ **Modern Windows Grafik Arayüzü (WinForms):** Arka planda siyah CMD/Terminal penceresi açılmaz; temiz ve modern bir masaüstü arayüzü sunar.
-- 🔍 **Resmî Kariyer Kapısı API Entegrasyonu:** Giriş yapma zorunluluğu olmadan kamuya açık resmî API uç noktalarından anlık ve tam veri çeker.
-- 🎯 **Akıllı Kadro Uygunluk Motoru (Tri-State Decision Engine):** Yalnızca ilan başlığına bakmaz; ilanın içindeki her bir kadro satırını tek tek inceler.
-  - ✅ **Şartlara Uygun:** Tüm zorunlu koşullar (Bölüm, Öğrenim Düzeyi, KPSS Taban Puanı, Sınav Yılı) tam karşılanıyor.
-  - ⚠️ **Kontrol Gerekli:** Kadro bilişim ile ilgili ancak ek belge, tecrübe veya özel sertifika kontrolü gerektiriyor.
-  - ❌ **Uygun Değil:** En az bir zorunlu koşul (örneğin sadece 4 yıllık lisans istemesi veya yetersiz puan) açıkça sağlanmıyor.
-- 🗄️ **SQLite Yerel Veritabanı:** İlanlar, kadrolar, değerlendirme geçmişi ve bildirim kuyruğu `kariyertakip.db` içerisinde saklanır. Tekrar eden veya değişmeyen ilanlar için mükerrer bildirim gönderilmez.
-- 📲 **Telegram Bot Entegrasyonu:** Şartlarına uyan veya güncellenen ilanlar zengin HTML şablonuyla (kurum, birim, kadro, kontenjan, şehir, KPSS şartı, başvuru tarihleri ve doğrudan linkler) Telegram sohbetine iletilir.
-- 🌐 **Tek Tıkla Resmî Sayfalara Erişim:** Seçilen ilanın Kariyer Kapısı detay sayfasına veya doğrudan e-Devlet başvuru ekranına tek tıkla tarayıcıdan ulaşılabilir.
-- 👤 **Arayüzden Profil Yönetimi:** `profile.json` dosyasını elle açmadan; bölümünüzü, KPSS puanınızı, tecrübenizi ve şehir tercihlerinizi doğrudan arayüzden güncelleyip anında yeniden değerlendirme yapabilirsiniz.
+- 🖥️ **Modern Windows Grafik Arayüzü (WinForms):** Arka planda siyah CMD/Terminal penceresi açılmaz; doğrudan pencereli masaüstü uygulaması olarak çalışır.
+- ⚡ **Ekransız / Arka Plan Çalışma Modu (`--scan-once`):** Windows Görev Zamanlayıcı veya zamanlanmış görevler için GUI açmadan çalışıp taramayı ve bildirimleri tamamlayarak kapanabilir.
+- 🔍 **Resmî Kariyer Kapısı API Entegrasyonu:** Kamuya açık resmî JSON API uç noktalarından veri çeker; geçici ağ hatalarında (429/502/503) üstel geri çekilme (exponential backoff) ile yeniden dener.
+- 🛡️ **Hata Sırasında Veri Koruma:** Ağ kesintisi veya sunucu hatası durumunda önbellekteki mevcut kadro ve ilan verileri silinmez, korunur.
+- 🎯 **3 Durumlu Akıllı Uygunluk Motoru (Tri-State Decision Engine):** Yalnızca ilan başlığına bakmaz; ilanın içindeki her bir kadro satırını tek tek inceler.
+  - ✅ **Şartlara Uygun (Eligible):** İlanın açıkça talep ettiği tüm zorunlu şartlar (Bölüm, Düzey, KPSS Taban Puanı, Sınav Yılı, Tecrübe) kullanıcı profili tarafından tam karşılanıyor.
+  - ⚠️ **Kontrol Gerekli (NeedsReview):** Kadro bilişimle ilgili ancak kılavuz kontrolü, özel sertifika/belge veya tecrübe doğrulaması gerekiyor ya da metinden KPSS şartı çıkarılamamış. *(Asla belirsiz şartlar varsayılan olarak sağlanmış sayılmaz).*
+  - ❌ **Uygun Değil (Ineligible):** En az bir zorunlu şart (örneğin sadece 4 yıllık lisans mezuniyeti istenmesi veya KPSS puanının tabanın altında kalması) sağlanmıyor.
+- 🗄️ **Kalıcı Kadro Kimlikleri & Sürümlü Değerlendirme:** Kadrolar silinip yeniden eklenmez; benzersiz `PositionKey` ile güncellenir. Değerlendirmeler güncel profil ve ilan sürümüne göre sorgulanır; eski kayıtlar yeni kararları ezmez.
+- 📲 **Güvenli Telegram Bildirim Kuyruğu (Outbox):** 
+  - Telegram yapılandırılmadığında veya kapalıyken mesajlar "gönderildi" sayılmaz (`Disabled` olarak işaretlenir).
+  - Her bildirim olay bazlı benzersiz bir anahtar (`DeduplicationKey`) ile kaydedilir; mükerrer bildirim oluşması engellenir.
+  - Uzun ilan mesajları Telegram sınırlarına uygun olarak parçalara bölünür.
+- 🔄 **Yerel Hızlı Yeniden Değerlendirme:** Profilinizde (bölüm, KPSS puanı vb.) değişiklik yaptığınızda internetten tekrar indirmeye gerek kalmadan önbellekteki tüm aktif ilanlar SQLite üzerinden anında yerel olarak yeniden değerlendirilir.
 
 ---
 
 ## 🛠️ Kullanılan Teknolojiler
 
-| Bileşen | Kullanılan Teknoloji / Kütüphane | Görevi |
+| Bileşen | Kullanılan Araç | Görevi |
 |---|---|---|
-| **Programlama Dili** | C# 14 / .NET 10 LTS | Uygulamanın tüm iş mantığı ve arayüzü |
-| **Kullanıcı Arayüzü** | Windows Forms (WinExe) | Pencereli, bağımsız masaüstü grafik arayüzü |
+| **Programlama Dili** | C# 14 / .NET 10 LTS | Uygulamanın tüm iş mantığı, ayrıştırıcıları ve arayüzü |
+| **Kullanıcı Arayüzü** | Windows Forms (WinExe) | Bağımsız masaüstü grafik arayüzü |
 | **Uygulama Altyapısı** | .NET Generic Host & Dependency Injection | Servis, konfigürasyon ve log yönetimi |
 | **Ağ İstemcisi** | `HttpClient` (Typed Client) | Kariyer Kapısı API ve Telegram Bot API erişimi |
 | **Veritabanı** | SQLite (`Microsoft.Data.Sqlite`) | İlan, kadro, değerlendirme ve outbox kayıtları |
-| **Metin & HTML İşleme** | `HtmlAgilityPack` + Regex | BBCode ve HTML etiketlerini temizleme, şart ayrıştırma |
-| **Ayarlar** | JSON (`appsettings.json`, `profile.json`) | Kullanıcı profili ve bot yapılandırması |
+| **Metin & HTML İşleme** | `HtmlAgilityPack` + Regex | HTML/BBCode temizleme, tablo ayrıştırma, kural tabanlı şart çıkarma |
+| **Birim Testleri** | xUnit + .NET Test SDK | Puan, tecrübe, mezuniyet ve tekilleştirme testleri |
+| **Ayarlar & Profil** | JSON (`appsettings.json`, `profile.json`) | Kullanıcı profili ve bot yapılandırması |
 
 ---
 
@@ -37,8 +42,10 @@
 
 ```text
 kariyertakip/
+├── Common/
+│   └── AppPaths.cs              # Belirlenmiş dosya ve veri yolları yönetimi
 ├── Forms/
-│   └── MainForm.cs              # Modern Windows Forms grafik arayüzü
+│   └── MainForm.cs              # Windows Forms modern masaüstü grafik arayüzü
 ├── Models/
 │   ├── AppConfig.cs             # Uygulama ve Telegram ayar modelleri
 │   ├── DbEntities.cs            # SQLite veritabanı tablo modelleri
@@ -46,23 +53,26 @@ kariyertakip/
 │   ├── KariyerKapisiModels.cs   # Resmî API istek ve yanıt modelleri
 │   └── ProfileOptions.cs        # Kullanıcı profil modelleri (Bölüm, KPSS, vb.)
 ├── Services/
-│   ├── CareerGateClient.cs      # Kariyer Kapısı API istemcisi
-│   ├── ChangeDetector.cs        # İlan ve son başvuru tarihi değişiklik tespiti
-│   ├── DocumentReader.cs        # BBCode / HTML temizleyici ve metin ayrıştırıcı
+│   ├── CareerGateClient.cs      # Kariyer Kapısı API istemcisi (Retry & ApiResult destekli)
+│   ├── ChangeDetector.cs        # İlan ve son başvuru tarihi değişiklik tespiti & hash
+│   ├── DocumentReader.cs        # HTML tablo ve metin temizleyici
 │   ├── EligibilityEvaluator.cs  # Şartları profille karşılaştıran karar motoru
 │   ├── GuiLogger.cs             # Logları canlı arayüze aktaran sağlayıcı
 │   ├── NotificationDispatcher.cs# Outbox bildirim kuyruğunu işleyen servis
 │   ├── RequirementExtractor.cs  # Metinlerden puan, yıl, tecrübe çıkaran motor
-│   ├── ScanCoordinator.cs       # Tarama ve değerlendirme orkestratörü
+│   ├── ScanCoordinator.cs       # Tarama, değerlendirme ve eşzamanlılık orkestratörü
 │   └── TelegramNotifier.cs      # Telegram mesaj formatlayıcı ve gönderici
 ├── Storage/
-│   ├── AnnouncementRepository.cs# SQLite CRUD ve sorgu işlemleri
+│   ├── AnnouncementRepository.cs# SQLite CRUD, indeks ve sorgu işlemleri
 │   └── IAnnouncementRepository.cs
+├── tests/
+│   └── KariyerTakip.Tests/      # xUnit birim test projesi
 ├── appsettings.json             # Telegram ve sistem ayarları
 ├── profile.json                 # Kullanıcı profili ve tercihleri
 ├── KariyerTakip.csproj          # .NET 10 proje ve paket yapılandırması
-├── Program.cs                   # Uygulama başlangıç noktası (STA WinExe)
-├── Kurulum.bat                  # Tek tıkla derleme ve başlatma betiği
+├── KariyerTakip.slnx            # .NET 10 çözüm dosyası
+├── Program.cs                   # Uygulama başlangıç noktası (GUI / --scan-once)
+├── Kurulum.bat                  # Tek tıkla derleme, test ve başlatma betiği
 ├── Kaldir.bat                   # Tek tıkla geçici dosya ve veritabanı temizleme
 └── README.md                    # Proje dokümantasyonu
 ```
@@ -78,21 +88,25 @@ kariyertakip/
 ### Yöntem 1: Tek Tıkla Kurulum ve Başlatma (Önerilen)
 1. Proje ana dizinindeki **`Kurulum.bat`** dosyasını çift tıklayarak çalıştırın.
 2. Betik sırasıyla:
-   - .NET SDK kontrolünü yapar.
+   - Sisteminizde `.NET 10 SDK` kurulu olduğunu doğrular.
    - Gerekli NuGet paketlerini yükler.
    - Projeyi Release modunda derler.
-   - Grafik arayüzü (`KariyerTakip.exe`) otomatik olarak başlatır.
+   - Birim testlerini (`dotnet test`) koşturup doğrular.
+   - Masaüstü grafik arayüzünü (`KariyerTakip.exe`) başlatır.
 
 ### Yöntem 2: Komut Satırından / Visual Studio ile Çalıştırma
 ```powershell
 # 1. Proje klasörüne gelin
 cd c:\Users\ck\Desktop\anaklasor\projelerim\projelerim\kariyertakip
 
-# 2. Paketleri geri yükleyin ve derleyin
-dotnet build
+# 2. Testleri çalıştırın
+dotnet test
 
-# 3. Uygulamayı başlatın
+# 3. Grafik arayüzü başlatın
 dotnet run
+
+# 4. (Alternatif) Ekransız / Görev Zamanlayıcı modunda tek seferlik tarama
+dotnet run -- --scan-once
 ```
 
 ---
@@ -100,26 +114,27 @@ dotnet run
 ## 📖 Kullanım Kılavuzu
 
 ### 1. 📋 İlanlar & Pozisyonlar Sekmesi
-- **Şimdi Tara:** Üst bardaki **"⚡ Şimdi Tara"** butonuna basarak canlı Kariyer Kapısı taramasını anında başlatabilirsiniz.
-- **Filtreleme:** `Tüm İlanlar`, `✅ Uygun İlanlar`, `⚠️ Kontrol Gerekli` filtreleri ile sadece ilginizi çeken kadroları görüntüleyebilirsiniz.
-- **Arama:** Kurum adına veya ilan başlığına göre anlık filtreleme yapabilirsiniz.
-- **Detay Kartı:** İlan seçildiğinde; kadro adı, unvan, toplam kontenjan, başvuru başlangıç/bitiş tarihleri ve **sistemin neden uygun bulduğuna dair detaylı gerekçe** sağ panelde listelenir.
+- **Şimdi Tara:** Üst bardaki **"⚡ Şimdi Tara"** butonuna basarak canlı Kariyer Kapısı taramasını anında başlatabilirsiniz. Devam eden bir taramayı **"⛔ İptal"** butonuyla güvenle durdurabilirsiniz.
+- **Filtreleme & Arama:** `Tüm İlanlar`, `✅ Uygun İlanlar`, `⚠️ Kontrol Gerekli` filtreleri ile sadece ilginizi çeken kadroları görüntüleyebilirsiniz.
+- **Detay Kartı:** İlan seçildiğinde; kadro adı, unvan, toplam kontenjan, başvuru tarihleri ve **sistemin neden uygun bulduğuna veya hangi şartı kontrol etmeniz gerektiğine dair ayrıntılı gerekçe** sağ panelde listelenir.
 - **Hızlı Butonlar:**
-  - 🌐 **Kariyer Kapısı İlanı:** Resmî ilan sayfasını açar.
+  - 🌐 **Kariyer Kapısı İlanı:** Resmî ilan sayfasını varsayılan tarayıcınızda açar.
   - 📝 **e-Devlet Başvuru:** İlgili kurumun e-Devlet başvuru kapısına yönlendirir.
-  - 📲 **Telegram'a At:** Seçili ilanı doğrudan Telegram sohbetinize gönderir.
+  - 📲 **Telegram'a At:** Seçili ilanın güncel durumunu anında Telegram sohbetinize gönderir.
 
-### 2. 👤 Profilim Sekmesi (`profile.json`)
+### 2. 👤 Profilim Sekmesi
 Profilinizi arayüz üzerinden dilediğiniz gibi güncelleyebilirsiniz:
-- **Bölüm:** `Bilgisayar Programcılığı` (veya istediğiniz ön lisans/lisans bölümü)
-- **Öğrenim Düzeyi:** `Ön Lisans` / `Lisans` / `Ortaöğretim`
-- **KPSS Puan Türü ve Puanı:** Örneğin `P93` ve `75.0`
-- **Sınav Yılı:** Örneğin `2024`
-- **Mesleki Tecrübe:** Yıl ve çalışma alanı
+- **Bölüm Adı & Öğrenim Düzeyi:** `Bilgisayar Programcılığı` / `Ön Lisans` / `Lisans`
+- **Mezuniyet Durumu:** `Mezun` / `Öğrenci`
+- **KPSS Puan Türü, Puanı ve Yılı:** Örneğin `P93`, `75.00`, `2024`
+- **Doğum Tarihi:** Yaş sınırı hesaplamaları için
+- **Askerlik Durumu:** `Muaf / Yapıldı`, `Tecilli`, `Yapılmadı`
+- **Mesleki Tecrübe:** Ay cinsinden süre, çalışma alanı ve resmi olarak belgelenebilir olup olmadığı
 - **Şehir Tercihleri:** Belirli iller veya tüm Türkiye için boş bırakma seçeneği
-- **"💾 Profili Kaydet & İlanları Yeniden Değerlendir"** butonuna bastığınızda ayarlar kaydedilir ve tüm aktif ilanlar yeni kriterlerinize göre anında yeniden taranır.
+- **Ehliyet ve Sertifikalar:** Ehliyet sınıfları ve sahip olduğunuz belgeler
+- **"💾 Profili Kaydet & İlanları Yeniden Değerlendir"** butonuna bastığınızda ayarlar kaydedilir ve veritabanındaki tüm aktif ilanlar yeni kriterlerinize göre anında yerel olarak yeniden değerlendirilir.
 
-### 3. ⚙️ Telegram & Sistem Ayarları (`appsettings.json`)
+### 3. ⚙️ Telegram & Sistem Ayarları
 Telegram bildirimlerini aktif etmek için:
 1. Telegram'da **@BotFather** botuna gidip `/newbot` komutuyla yeni bir bot oluşturun ve verilen **API Token** değerini kopyalayın.
 2. Oluşturduğunuz bot ile sohbet başlatıp `/start` yazın.
@@ -129,9 +144,6 @@ Telegram bildirimlerini aktif etmek için:
    - **Telegram Bildirimlerini Etkinleştir:** İşaretleyin.
 4. **"📨 Test Bildirimi Gönder"** butonuna basarak bağlantıyı test edin.
 5. **"💾 Ayarları Kaydet"** butonuna basarak yapılandırmayı tamamlayın.
-
-### 4. 📜 Canlı İşlem Günlüğü
-Arka planda yapılan tüm HTTP API çağrıları, tespit edilen kadro sayıları ve uygunluk analizleri bu ekranda renkli olarak canlı akar.
 
 ---
 

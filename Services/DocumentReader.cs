@@ -8,6 +8,8 @@ public class DocumentReader
     private static readonly Regex BbCodeRegex = new Regex(@"\[/?[a-zA-Z0-9_=\.\#\%\:\-\s\""']+\]", RegexOptions.Compiled);
     private static readonly Regex MultipleSpacesRegex = new Regex(@"[ \t]+", RegexOptions.Compiled);
     private static readonly Regex MultipleNewlinesRegex = new Regex(@"(\r\n|\n|\r){3,}", RegexOptions.Compiled);
+    private static readonly Regex HtmlBreaksRegex = new Regex(@"<(?:br|p|div|tr|li|/tr|/p|/div|/li)[^>]*>", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    private static readonly Regex TableCellRegex = new Regex(@"<(?:td|th)[^>]*>", RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
     public string CleanAndNormalizeText(string? rawText)
     {
@@ -17,7 +19,11 @@ public class DocumentReader
         // 1. Remove BBCode tags
         var cleaned = BbCodeRegex.Replace(rawText, " ");
 
-        // 2. Parse HTML if any HTML tags remain
+        // 2. Replace HTML line breaks/cells with spaces and newlines
+        cleaned = TableCellRegex.Replace(cleaned, "  ");
+        cleaned = HtmlBreaksRegex.Replace(cleaned, "\n");
+
+        // 3. Strip any remaining HTML tags safely
         if (cleaned.Contains('<') && cleaned.Contains('>'))
         {
             var doc = new HtmlAgilityPack.HtmlDocument();
@@ -25,10 +31,10 @@ public class DocumentReader
             cleaned = doc.DocumentNode.InnerText;
         }
 
-        // 3. Decode HTML entities
+        // 4. Decode HTML entities
         cleaned = WebUtility.HtmlDecode(cleaned);
 
-        // 4. Normalize whitespace
+        // 5. Normalize whitespace
         cleaned = MultipleSpacesRegex.Replace(cleaned, " ");
         cleaned = MultipleNewlinesRegex.Replace(cleaned, "\n\n");
 
@@ -50,7 +56,21 @@ public class DocumentReader
             if (string.IsNullOrWhiteSpace(trimmed))
                 continue;
 
-            clauses.Add(trimmed);
+            // If line contains multiple semicolon-separated items, split them
+            if (trimmed.Contains(';') && trimmed.Length > 80)
+            {
+                var subParts = trimmed.Split(';', StringSplitOptions.RemoveEmptyEntries);
+                foreach (var sub in subParts)
+                {
+                    var tSub = sub.Trim();
+                    if (!string.IsNullOrWhiteSpace(tSub))
+                        clauses.Add(tSub);
+                }
+            }
+            else
+            {
+                clauses.Add(trimmed);
+            }
         }
 
         return clauses;

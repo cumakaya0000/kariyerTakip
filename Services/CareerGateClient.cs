@@ -6,6 +6,30 @@ using KariyerTakip.Models;
 
 namespace KariyerTakip.Services;
 
+public enum ApiCallStatus
+{
+    Success,
+    EmptyResponse,
+    HttpError,
+    NetworkError,
+    ParseError
+}
+
+public class ApiResult<T>
+{
+    public ApiCallStatus Status { get; set; }
+    public T? Data { get; set; }
+    public string? ErrorMessage { get; set; }
+    public int? StatusCode { get; set; }
+
+    public bool IsSuccess => Status == ApiCallStatus.Success && Data != null;
+
+    public static ApiResult<T> Ok(T data) => new() { Status = ApiCallStatus.Success, Data = data };
+    public static ApiResult<T> Empty() => new() { Status = ApiCallStatus.EmptyResponse };
+    public static ApiResult<T> Fail(ApiCallStatus status, string error, int? code = null) =>
+        new() { Status = status, ErrorMessage = error, StatusCode = code };
+}
+
 public class CareerGateClient
 {
     private readonly HttpClient _httpClient;
@@ -28,79 +52,110 @@ public class CareerGateClient
         _httpClient.DefaultRequestHeaders.TryAddWithoutValidation("Referer", _config.PortalBaseUrl + "/");
     }
 
-    public async Task<List<SearchIlanItem>> GetActiveAnnouncementsAsync(string searchText = "", CancellationToken cancellationToken = default)
+    public async Task<ApiResult<List<SearchIlanItem>>> GetActiveAnnouncementsAsync(string searchText = "", CancellationToken cancellationToken = default)
     {
-        try
+        var req = new SearchIlanRequest
         {
-            var req = new SearchIlanRequest
+            KrM_ID = 0,
+            SearchText = searchText,
+            Il = "0",
+            IlanTuru = "0"
+        };
+
+        return await ExecuteWithRetryAsync<GetIseAlimPageResponse, List<SearchIlanItem>>(
+            "ilan/GetIseAlimPage",
+            req,
+            resp =>
             {
-                KrM_ID = 0,
-                SearchText = searchText,
-                Il = "0",
-                IlanTuru = "0"
-            };
-
-            var response = await _httpClient.PostAsJsonAsync("ilan/GetIseAlimPage", req, cancellationToken);
-            response.EnsureSuccessStatusCode();
-
-            var result = await response.Content.ReadFromJsonAsync<GetIseAlimPageResponse>(cancellationToken: cancellationToken);
-            var list = result?.SearchIlan ?? new List<SearchIlanItem>();
-
-            // Filter active by date
-            var now = DateTime.Now;
-            var activeList = list.Where(x => !x.BitTarih.HasValue || x.BitTarih.Value >= now).ToList();
-
-            _logger.LogInformation("Kariyer Kapısı'ndan toplam {Total} ilan çekildi, {Active} tanesi aktif.", list.Count, activeList.Count);
-            return activeList;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Kariyer Kapısı ilan listesi alınırken hata oluştu.");
-            throw;
-        }
+                var list = resp?.SearchIlan ?? new List<SearchIlanItem>();
+                // Only return active postings
+                var now = DateTime.Now;
+                return list.Where(x => !x.BitTarih.HasValue || x.BitTarih.Value >= now).ToList();
+            },
+            cancellationToken);
     }
 
-    public async Task<IlanPreviewResponse?> GetAnnouncementPreviewAsync(string guid, CancellationToken cancellationToken = default)
+    public async Task<ApiResult<IlanPreviewResponse>> GetAnnouncementPreviewAsync(string guid, CancellationToken cancellationToken = default)
     {
-        try
-        {
-            var req = new IlanGuidRequest { IlanGuid = guid };
-            var response = await _httpClient.PostAsJsonAsync("ilan/GetIlanPreviewPublic", req, cancellationToken);
-            if (response.StatusCode == System.Net.HttpStatusCode.NoContent)
-            {
-                _logger.LogWarning("İlan önizlemesi bulunamadı (204 No Content): {Guid}", guid);
-                return null;
-            }
-
-            response.EnsureSuccessStatusCode();
-            return await response.Content.ReadFromJsonAsync<IlanPreviewResponse>(cancellationToken: cancellationToken);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "İlan önizleme bilgisi alınırken hata oluştu (Guid: {Guid})", guid);
-            return null;
-        }
+        var req = new IlanGuidRequest { IlanGuid = guid };
+        return await ExecuteWithRetryAsync<IlanPreviewResponse, IlanPreviewResponse>(
+            "ilan/GetIlanPreviewPublic",
+            req,
+            resp => resp,
+            cancellationToken);
     }
 
-    public async Task<List<AltIlanResponse>> GetPositionsAsync(string guid, CancellationToken cancellationToken = default)
+    public async Task<ApiResult<List<AltIlanResponse>>> GetPositionsAsync(string guid, CancellationToken cancellationToken = default)
     {
-        try
-        {
-            var req = new IlanGuidRequest { IlanGuid = guid };
-            var response = await _httpClient.PostAsJsonAsync("altilan/GetAltIlanInfoByIlanIdPublic", req, cancellationToken);
-            if (response.StatusCode == System.Net.HttpStatusCode.NoContent)
-            {
-                return new List<AltIlanResponse>();
-            }
+        var req = new IlanGuidRequest { IlanGuid = guid };
+        return await ExecuteWithRetryAsync<List<AltIlanResponse>, List<AltIlanResponse>>(
+            "altilan/GetAltIlanInfoByIlanIdPublic",
+            req,
+            resp => resp ?? new List<AltIlanResponse>(),
+            cancellationToken);
+    }
 
-            response.EnsureSuccessStatusCode();
-            var list = await response.Content.ReadFromJsonAsync<List<AltIlanResponse>>(cancellationToken: cancellationToken);
-            return list ?? new List<AltIlanResponse>();
-        }
-        catch (Exception ex)
+    private async Task<ApiResult<TOut>> ExecuteWithRetryAsync<TIn, TOut>(
+        string endpoint,
+        object payload,
+        Func<TIn?, TOut?> transform,
+        CancellationToken cancellationToken,
+        int maxRetries = 3)
+    {
+        for (int attempt = 1; attempt <= maxRetries; attempt++)
         {
-            _logger.LogError(ex, "Kadro (alt ilan) bilgileri alınırken hata oluştu (Guid: {Guid})", guid);
-            return new List<AltIlanResponse>();
+            try
+            {
+                var response = await _httpClient.PostAsJsonAsync(endpoint, payload, cancellationToken);
+
+                if (response.StatusCode == System.Net.HttpStatusCode.NoContent)
+                {
+                    return ApiResult<TOut>.Empty();
+                }
+
+                if ((int)response.StatusCode == 429 || (int)response.StatusCode == 502 || (int)response.StatusCode == 503)
+                {
+                    _logger.LogWarning("API geçici hata döndürdü ({StatusCode}). Deneme: {Attempt}/{MaxRetries}", response.StatusCode, attempt, maxRetries);
+                    if (attempt < maxRetries)
+                    {
+                        await Task.Delay(attempt * 1000, cancellationToken);
+                        continue;
+                    }
+                    return ApiResult<TOut>.Fail(ApiCallStatus.HttpError, $"HTTP {(int)response.StatusCode}: {response.ReasonPhrase}", (int)response.StatusCode);
+                }
+
+                response.EnsureSuccessStatusCode();
+
+                var rawObj = await response.Content.ReadFromJsonAsync<TIn>(cancellationToken: cancellationToken);
+                var resultData = transform(rawObj);
+
+                if (resultData == null)
+                    return ApiResult<TOut>.Empty();
+
+                return ApiResult<TOut>.Ok(resultData);
+            }
+            catch (HttpRequestException ex)
+            {
+                _logger.LogWarning(ex, "Ağ hatası oluştu (Endpoint: {Endpoint}, Deneme: {Attempt}/{Max})", endpoint, attempt, maxRetries);
+                if (attempt < maxRetries)
+                {
+                    await Task.Delay(attempt * 1000, cancellationToken);
+                    continue;
+                }
+                return ApiResult<TOut>.Fail(ApiCallStatus.NetworkError, ex.Message);
+            }
+            catch (JsonException ex)
+            {
+                _logger.LogError(ex, "JSON ayrıştırma hatası (Endpoint: {Endpoint})", endpoint);
+                return ApiResult<TOut>.Fail(ApiCallStatus.ParseError, ex.Message);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Beklenmeyen hata (Endpoint: {Endpoint})", endpoint);
+                return ApiResult<TOut>.Fail(ApiCallStatus.NetworkError, ex.Message);
+            }
         }
+
+        return ApiResult<TOut>.Fail(ApiCallStatus.NetworkError, "Maksimum tekrar deneme sınırına ulaşıldı.");
     }
 }

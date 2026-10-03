@@ -6,6 +6,7 @@ using System.Windows.Forms;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using KariyerTakip.Common;
 using KariyerTakip.Models;
 using KariyerTakip.Services;
 using KariyerTakip.Storage;
@@ -18,9 +19,14 @@ public partial class MainForm : Form
     private readonly ScanCoordinator _scanCoordinator;
     private readonly IAnnouncementRepository _repository;
     private readonly TelegramNotifier _telegramNotifier;
+    private readonly ChangeDetector _changeDetector;
     private readonly ILogger<MainForm> _logger;
     private ProfileOptions _profile;
     private AppConfig _config;
+
+    // Concurrency / Cancellation
+    private CancellationTokenSource? _scanCts;
+    private bool _isScanning = false;
 
     // UI Controls
     private TabControl _tabControl = null!;
@@ -28,7 +34,9 @@ public partial class MainForm : Form
     private ComboBox _cmbFilter = null!;
     private TextBox _txtSearch = null!;
     private Button _btnScanNow = null!;
+    private Button _btnCancelScan = null!;
     private Label _lblStatus = null!;
+    private Label _lblLastScanTime = null!;
     private RichTextBox _rtbLog = null!;
 
     // Detail Panel Controls
@@ -44,14 +52,21 @@ public partial class MainForm : Form
     // Profile UI Controls
     private TextBox _txtProfileDept = null!;
     private ComboBox _cmbProfileLevel = null!;
+    private ComboBox _cmbGraduationStatus = null!;
+    private ComboBox _cmbKpssStatus = null!;
     private TextBox _txtKpssType = null!;
     private NumericUpDown _numKpssScore = null!;
     private NumericUpDown _numKpssYear = null!;
-    private NumericUpDown _numExpYears = null!;
+    private DateTimePicker _dtpBirthDate = null!;
+    private ComboBox _cmbMilitary = null!;
+    private NumericUpDown _numExpMonths = null!;
     private TextBox _txtExpField = null!;
     private CheckBox _chkExpKnown = null!;
+    private CheckBox _chkExpDoc = null!;
+    private TextBox _txtCertificates = null!;
     private TextBox _txtCities = null!;
     private TextBox _txtDriving = null!;
+    private Button _btnSaveProfile = null!;
 
     // Telegram UI Controls
     private TextBox _txtTgToken = null!;
@@ -68,6 +83,7 @@ public partial class MainForm : Form
         ScanCoordinator scanCoordinator,
         IAnnouncementRepository repository,
         TelegramNotifier telegramNotifier,
+        ChangeDetector changeDetector,
         IOptions<ProfileOptions> profileOptions,
         IOptions<AppConfig> appConfig,
         ILogger<MainForm> logger)
@@ -76,6 +92,7 @@ public partial class MainForm : Form
         _scanCoordinator = scanCoordinator;
         _repository = repository;
         _telegramNotifier = telegramNotifier;
+        _changeDetector = changeDetector;
         _logger = logger;
         _profile = profileOptions.Value;
         _config = appConfig.Value;
@@ -87,8 +104,8 @@ public partial class MainForm : Form
     private void InitializeComponentsCustom()
     {
         Text = "KariyerTakip — Kamu İlan Asistanı";
-        Size = new Size(1200, 780);
-        MinimumSize = new Size(1000, 650);
+        Size = new Size(1220, 800);
+        MinimumSize = new Size(1020, 680);
         StartPosition = FormStartPosition.CenterScreen;
         Font = new Font("Segoe UI", 9.5f, FontStyle.Regular);
         BackColor = Color.FromArgb(244, 246, 249);
@@ -97,7 +114,7 @@ public partial class MainForm : Form
         var topPanel = new Panel
         {
             Dock = DockStyle.Top,
-            Height = 70,
+            Height = 72,
             BackColor = Color.FromArgb(15, 37, 65),
             Padding = new Padding(15, 10, 15, 10)
         };
@@ -111,13 +128,13 @@ public partial class MainForm : Form
             Location = new Point(15, 12)
         };
 
-        var lblAppSub = new Label
+        _lblLastScanTime = new Label
         {
-            Text = "Kişisel Kamu İşe Alım & Kadro Uygunluk Takipçisi",
+            Text = "Son Başarılı Tarama: Henüz yapılmadı",
             Font = new Font("Segoe UI", 8.5f),
             ForeColor = Color.FromArgb(180, 200, 220),
             AutoSize = true,
-            Location = new Point(17, 40)
+            Location = new Point(17, 42)
         };
 
         _btnScanNow = new Button
@@ -127,13 +144,29 @@ public partial class MainForm : Form
             ForeColor = Color.White,
             BackColor = Color.FromArgb(0, 122, 255),
             FlatStyle = FlatStyle.Flat,
-            Size = new Size(140, 42),
+            Size = new Size(130, 42),
             Cursor = Cursors.Hand,
             Anchor = AnchorStyles.Top | AnchorStyles.Right,
-            Location = new Point(topPanel.Width - 165, 14)
+            Location = new Point(topPanel.Width - 145, 15)
         };
         _btnScanNow.FlatAppearance.BorderSize = 0;
         _btnScanNow.Click += async (s, e) => await StartScanAsync();
+
+        _btnCancelScan = new Button
+        {
+            Text = "⛔ İptal",
+            Font = new Font("Segoe UI", 9.5f, FontStyle.Bold),
+            ForeColor = Color.White,
+            BackColor = Color.FromArgb(220, 53, 69),
+            FlatStyle = FlatStyle.Flat,
+            Size = new Size(80, 42),
+            Cursor = Cursors.Hand,
+            Enabled = false,
+            Anchor = AnchorStyles.Top | AnchorStyles.Right,
+            Location = new Point(topPanel.Width - 235, 15)
+        };
+        _btnCancelScan.FlatAppearance.BorderSize = 0;
+        _btnCancelScan.Click += (s, e) => CancelScan();
 
         _lblStatus = new Label
         {
@@ -142,12 +175,13 @@ public partial class MainForm : Form
             ForeColor = Color.FromArgb(150, 220, 150),
             AutoSize = true,
             Anchor = AnchorStyles.Top | AnchorStyles.Right,
-            Location = new Point(topPanel.Width - 380, 25)
+            Location = new Point(topPanel.Width - 460, 26)
         };
 
         topPanel.Controls.Add(lblAppTitle);
-        topPanel.Controls.Add(lblAppSub);
+        topPanel.Controls.Add(_lblLastScanTime);
         topPanel.Controls.Add(_btnScanNow);
+        topPanel.Controls.Add(_btnCancelScan);
         topPanel.Controls.Add(_lblStatus);
         Controls.Add(topPanel);
 
@@ -165,7 +199,7 @@ public partial class MainForm : Form
         _tabControl.TabPages.Add(tabAnnouncements);
 
         // Tab 2: Profilim
-        var tabProfile = new TabPage("👤 Profilim (profile.json)") { BackColor = Color.White };
+        var tabProfile = new TabPage("👤 Profilim") { BackColor = Color.White };
         SetupProfileTab(tabProfile);
         _tabControl.TabPages.Add(tabProfile);
 
@@ -182,7 +216,6 @@ public partial class MainForm : Form
         Controls.Add(_tabControl);
         _tabControl.BringToFront();
 
-        // Load Initial Data on Shown
         Shown += async (s, e) => await LoadAnnouncementsFromDbAsync();
     }
 
@@ -192,7 +225,7 @@ public partial class MainForm : Form
         {
             Dock = DockStyle.Fill,
             Orientation = Orientation.Vertical,
-            SplitterDistance = 580,
+            SplitterDistance = 600,
             SplitterWidth = 6,
             BackColor = Color.FromArgb(230, 235, 240)
         };
@@ -207,10 +240,10 @@ public partial class MainForm : Form
         _cmbFilter.SelectedIndex = 0;
         _cmbFilter.SelectedIndexChanged += (s, e) => ApplyFilter();
 
-        _txtSearch = new TextBox { Location = new Point(240, 7), Width = 200, PlaceholderText = "Kurum / İlan Ara..." };
+        _txtSearch = new TextBox { Location = new Point(240, 7), Width = 210, PlaceholderText = "Kurum / İlan Ara..." };
         _txtSearch.TextChanged += (s, e) => ApplyFilter();
 
-        var btnRefresh = new Button { Text = "🔄 Yenile", Location = new Point(450, 6), Width = 80, Height = 28 };
+        var btnRefresh = new Button { Text = "🔄 Yenile", Location = new Point(460, 6), Width = 80, Height = 28 };
         btnRefresh.Click += async (s, e) => await LoadAnnouncementsFromDbAsync();
 
         filterPanel.Controls.Add(lblFilter);
@@ -297,7 +330,7 @@ public partial class MainForm : Form
         pnlDetailHeader.Controls.Add(_lblDetailTitle);
         pnlDetailHeader.Controls.Add(_lblDetailDates);
 
-        // Action Buttons at Bottom of Right Panel
+        // Action Buttons at Bottom
         var pnlActions = new Panel { Dock = DockStyle.Bottom, Height = 55, BackColor = Color.FromArgb(250, 252, 255) };
         _btnOpenKariyerKapisi = new Button
         {
@@ -366,7 +399,7 @@ public partial class MainForm : Form
         int y = 20;
         var lblHeader = new Label
         {
-            Text = "👤 Kullanıcı Profili ve Şartlar",
+            Text = "👤 Profil Bilgileri & Başvuru Kriterleri",
             Font = new Font("Segoe UI", 13, FontStyle.Bold),
             ForeColor = Color.FromArgb(15, 37, 65),
             Location = new Point(25, y),
@@ -376,60 +409,95 @@ public partial class MainForm : Form
 
         y += 45;
         // Bölüm
-        scroll.Controls.Add(new Label { Text = "Mezun Olunan / Okunan Bölüm:", Location = new Point(25, y), AutoSize = true, Font = new Font("Segoe UI", 9.5f, FontStyle.Bold) });
-        _txtProfileDept = new TextBox { Text = _profile.Department, Location = new Point(25, y + 25), Width = 350 };
+        scroll.Controls.Add(new Label { Text = "Bölüm Adı:", Location = new Point(25, y), AutoSize = true, Font = new Font("Segoe UI", 9.5f, FontStyle.Bold) });
+        _txtProfileDept = new TextBox { Text = _profile.Department, Location = new Point(25, y + 25), Width = 300 };
         scroll.Controls.Add(_txtProfileDept);
 
         // Öğrenim Düzeyi
-        scroll.Controls.Add(new Label { Text = "Öğrenim Düzeyi:", Location = new Point(400, y), AutoSize = true, Font = new Font("Segoe UI", 9.5f, FontStyle.Bold) });
-        _cmbProfileLevel = new ComboBox { Location = new Point(400, y + 25), Width = 200, DropDownStyle = ComboBoxStyle.DropDownList };
+        scroll.Controls.Add(new Label { Text = "Öğrenim Düzeyi:", Location = new Point(340, y), AutoSize = true, Font = new Font("Segoe UI", 9.5f, FontStyle.Bold) });
+        _cmbProfileLevel = new ComboBox { Location = new Point(340, y + 25), Width = 160, DropDownStyle = ComboBoxStyle.DropDownList };
         _cmbProfileLevel.Items.AddRange(new object[] { "Ön Lisans", "Lisans", "Ortaöğretim / Lise", "Yüksek Lisans" });
         _cmbProfileLevel.SelectedItem = _profile.EducationLevel;
         if (_cmbProfileLevel.SelectedIndex < 0) _cmbProfileLevel.SelectedIndex = 0;
         scroll.Controls.Add(_cmbProfileLevel);
 
+        // Mezuniyet Durumu
+        scroll.Controls.Add(new Label { Text = "Mezuniyet:", Location = new Point(515, y), AutoSize = true, Font = new Font("Segoe UI", 9.5f, FontStyle.Bold) });
+        _cmbGraduationStatus = new ComboBox { Location = new Point(515, y + 25), Width = 130, DropDownStyle = ComboBoxStyle.DropDownList };
+        _cmbGraduationStatus.Items.AddRange(new object[] { "Mezun", "Öğrenci", "Bilinmiyor" });
+        _cmbGraduationStatus.SelectedItem = _profile.GraduationStatus;
+        if (_cmbGraduationStatus.SelectedIndex < 0) _cmbGraduationStatus.SelectedIndex = 0;
+        scroll.Controls.Add(_cmbGraduationStatus);
+
         y += 70;
-        // KPSS Puanı
-        scroll.Controls.Add(new Label { Text = "KPSS Puan Türü:", Location = new Point(25, y), AutoSize = true, Font = new Font("Segoe UI", 9.5f, FontStyle.Bold) });
-        var firstScore = _profile.KpssScores.FirstOrDefault() ?? new KpssScoreEntry { ScoreType = "P93", Score = 70, ExamYear = 2024 };
-        _txtKpssType = new TextBox { Text = firstScore.ScoreType, Location = new Point(25, y + 25), Width = 150 };
+        // KPSS
+        scroll.Controls.Add(new Label { Text = "KPSS Durumu:", Location = new Point(25, y), AutoSize = true, Font = new Font("Segoe UI", 9.5f, FontStyle.Bold) });
+        _cmbKpssStatus = new ComboBox { Location = new Point(25, y + 25), Width = 110, DropDownStyle = ComboBoxStyle.DropDownList };
+        _cmbKpssStatus.Items.AddRange(new object[] { "Var", "Yok", "Bilinmiyor" });
+        _cmbKpssStatus.SelectedItem = _profile.KpssStatus;
+        if (_cmbKpssStatus.SelectedIndex < 0) _cmbKpssStatus.SelectedIndex = 0;
+        scroll.Controls.Add(_cmbKpssStatus);
+
+        var firstScore = _profile.KpssScores.FirstOrDefault() ?? new KpssScoreEntry { ScoreType = "P93", Score = 75, ExamYear = 2024 };
+        scroll.Controls.Add(new Label { Text = "Puan Türü:", Location = new Point(145, y), AutoSize = true, Font = new Font("Segoe UI", 9.5f, FontStyle.Bold) });
+        _txtKpssType = new TextBox { Text = firstScore.ScoreType, Location = new Point(145, y + 25), Width = 100 };
         scroll.Controls.Add(_txtKpssType);
 
-        scroll.Controls.Add(new Label { Text = "KPSS Puanı:", Location = new Point(200, y), AutoSize = true, Font = new Font("Segoe UI", 9.5f, FontStyle.Bold) });
-        _numKpssScore = new NumericUpDown { DecimalPlaces = 2, Minimum = 0, Maximum = 100, Value = (decimal)firstScore.Score, Location = new Point(200, y + 25), Width = 120 };
+        scroll.Controls.Add(new Label { Text = "Puan:", Location = new Point(255, y), AutoSize = true, Font = new Font("Segoe UI", 9.5f, FontStyle.Bold) });
+        _numKpssScore = new NumericUpDown { DecimalPlaces = 2, Minimum = 0, Maximum = 100, Value = (decimal)firstScore.Score, Location = new Point(255, y + 25), Width = 90 };
         scroll.Controls.Add(_numKpssScore);
 
-        scroll.Controls.Add(new Label { Text = "Sınav Yılı:", Location = new Point(350, y), AutoSize = true, Font = new Font("Segoe UI", 9.5f, FontStyle.Bold) });
-        _numKpssYear = new NumericUpDown { Minimum = 2020, Maximum = 2030, Value = firstScore.ExamYear, Location = new Point(350, y + 25), Width = 120 };
+        scroll.Controls.Add(new Label { Text = "Sınav Yılı:", Location = new Point(355, y), AutoSize = true, Font = new Font("Segoe UI", 9.5f, FontStyle.Bold) });
+        _numKpssYear = new NumericUpDown { Minimum = 2018, Maximum = 2035, Value = firstScore.ExamYear, Location = new Point(355, y + 25), Width = 90 };
         scroll.Controls.Add(_numKpssYear);
+
+        // Doğum Tarihi (Yaş Hesabı İçin)
+        scroll.Controls.Add(new Label { Text = "Doğum Tarihi:", Location = new Point(455, y), AutoSize = true, Font = new Font("Segoe UI", 9.5f, FontStyle.Bold) });
+        _dtpBirthDate = new DateTimePicker { Format = DateTimePickerFormat.Short, Value = _profile.BirthDate ?? new DateTime(1998, 1, 1), Location = new Point(455, y + 25), Width = 120 };
+        scroll.Controls.Add(_dtpBirthDate);
+
+        // Askerlik
+        scroll.Controls.Add(new Label { Text = "Askerlik:", Location = new Point(585, y), AutoSize = true, Font = new Font("Segoe UI", 9.5f, FontStyle.Bold) });
+        _cmbMilitary = new ComboBox { Location = new Point(585, y + 25), Width = 140, DropDownStyle = ComboBoxStyle.DropDownList };
+        _cmbMilitary.Items.AddRange(new object[] { "Muaf / Yapıldı", "Tecilli", "Yapılmadı", "Bilinmiyor" });
+        _cmbMilitary.SelectedItem = _profile.MilitaryStatus;
+        if (_cmbMilitary.SelectedIndex < 0) _cmbMilitary.SelectedIndex = 0;
+        scroll.Controls.Add(_cmbMilitary);
 
         y += 70;
         // Deneyim
-        scroll.Controls.Add(new Label { Text = "Mesleki Tecrübe (Yıl):", Location = new Point(25, y), AutoSize = true, Font = new Font("Segoe UI", 9.5f, FontStyle.Bold) });
-        _numExpYears = new NumericUpDown { Minimum = 0, Maximum = 40, Value = (decimal)_profile.Experience.Years, Location = new Point(25, y + 25), Width = 150 };
-        scroll.Controls.Add(_numExpYears);
+        scroll.Controls.Add(new Label { Text = "Mesleki Tecrübe (Ay):", Location = new Point(25, y), AutoSize = true, Font = new Font("Segoe UI", 9.5f, FontStyle.Bold) });
+        _numExpMonths = new NumericUpDown { Minimum = 0, Maximum = 480, Value = _profile.Experience.TotalMonths, Location = new Point(25, y + 25), Width = 130 };
+        scroll.Controls.Add(_numExpMonths);
 
-        scroll.Controls.Add(new Label { Text = "Tecrübe Alanı:", Location = new Point(200, y), AutoSize = true, Font = new Font("Segoe UI", 9.5f, FontStyle.Bold) });
-        _txtExpField = new TextBox { Text = _profile.Experience.Field, Location = new Point(200, y + 25), Width = 270 };
+        scroll.Controls.Add(new Label { Text = "Tecrübe Alanı:", Location = new Point(165, y), AutoSize = true, Font = new Font("Segoe UI", 9.5f, FontStyle.Bold) });
+        _txtExpField = new TextBox { Text = _profile.Experience.Field, Location = new Point(165, y + 25), Width = 280 };
         scroll.Controls.Add(_txtExpField);
 
-        _chkExpKnown = new CheckBox { Text = "Tecrübe durumu profilimde belirtildi (İşaretsizse 'Bilinmiyor' sayılır)", Checked = _profile.Experience.IsKnown, Location = new Point(25, y + 60), AutoSize = true };
+        _chkExpKnown = new CheckBox { Text = "Tecrübe bilgisi profilimde belirtildi (İşaretsizse 'Bilinmiyor' sayılır)", Checked = _profile.Experience.IsKnown, Location = new Point(25, y + 60), AutoSize = true };
         scroll.Controls.Add(_chkExpKnown);
 
-        y += 95;
+        _chkExpDoc = new CheckBox { Text = "Tecrübem resmi SGK / çalışma belgesi ile belgelenebilir", Checked = _profile.Experience.IsDocumented, Location = new Point(25, y + 85), AutoSize = true };
+        scroll.Controls.Add(_chkExpDoc);
+
+        y += 120;
         // Şehir Tercihleri
         scroll.Controls.Add(new Label { Text = "Şehir Tercihleri (Virgülle ayırınız. Boş bırakırsanız TÜM TÜRKİYE kabul edilir):", Location = new Point(25, y), AutoSize = true, Font = new Font("Segoe UI", 9.5f, FontStyle.Bold) });
-        _txtCities = new TextBox { Text = string.Join(", ", _profile.CityPreferences), Location = new Point(25, y + 25), Width = 575 };
+        _txtCities = new TextBox { Text = string.Join(", ", _profile.CityPreferences), Location = new Point(25, y + 25), Width = 600 };
         scroll.Controls.Add(_txtCities);
 
         y += 70;
-        // Ehliyet
+        // Ehliyet & Sertifikalar
         scroll.Controls.Add(new Label { Text = "Ehliyet Sınıfları (Örn: B, A2):", Location = new Point(25, y), AutoSize = true, Font = new Font("Segoe UI", 9.5f, FontStyle.Bold) });
-        _txtDriving = new TextBox { Text = string.Join(", ", _profile.DrivingLicenses), Location = new Point(25, y + 25), Width = 300 };
+        _txtDriving = new TextBox { Text = string.Join(", ", _profile.DrivingLicenses), Location = new Point(25, y + 25), Width = 200 };
         scroll.Controls.Add(_txtDriving);
 
+        scroll.Controls.Add(new Label { Text = "Sertifikalar / Belgeler (Virgülle ayırınız):", Location = new Point(240, y), AutoSize = true, Font = new Font("Segoe UI", 9.5f, FontStyle.Bold) });
+        _txtCertificates = new TextBox { Text = string.Join(", ", _profile.Certificates), Location = new Point(240, y + 25), Width = 385 };
+        scroll.Controls.Add(_txtCertificates);
+
         y += 75;
-        var btnSaveProfile = new Button
+        _btnSaveProfile = new Button
         {
             Text = "💾 Profili Kaydet & İlanları Yeniden Değerlendir",
             Font = new Font("Segoe UI", 10.5f, FontStyle.Bold),
@@ -440,8 +508,8 @@ public partial class MainForm : Form
             Location = new Point(25, y),
             Cursor = Cursors.Hand
         };
-        btnSaveProfile.Click += async (s, e) => await SaveProfileAndReevaluateAsync();
-        scroll.Controls.Add(btnSaveProfile);
+        _btnSaveProfile.Click += async (s, e) => await SaveProfileAndReevaluateAsync();
+        scroll.Controls.Add(_btnSaveProfile);
 
         tab.Controls.Add(scroll);
     }
@@ -473,12 +541,12 @@ public partial class MainForm : Form
         scroll.Controls.Add(_chkTgEnabled);
 
         y += 40;
-        scroll.Controls.Add(new Label { Text = "Telegram Bot Token (@BotFather'dan aldığınız anahtar):", Location = new Point(25, y), AutoSize = true, Font = new Font("Segoe UI", 9.5f, FontStyle.Bold) });
+        scroll.Controls.Add(new Label { Text = "Telegram Bot Token (@BotFather'dan aldığınız token):", Location = new Point(25, y), AutoSize = true, Font = new Font("Segoe UI", 9.5f, FontStyle.Bold) });
         _txtTgToken = new TextBox { Text = _config.Telegram.BotToken, Location = new Point(25, y + 25), Width = 550 };
         scroll.Controls.Add(_txtTgToken);
 
         y += 70;
-        scroll.Controls.Add(new Label { Text = "Telegram Chat ID (Mesajın iletileceği sohbet kimliğiniz):", Location = new Point(25, y), AutoSize = true, Font = new Font("Segoe UI", 9.5f, FontStyle.Bold) });
+        scroll.Controls.Add(new Label { Text = "Telegram Chat ID (Mesajın iletileceği sohbet ID'si):", Location = new Point(25, y), AutoSize = true, Font = new Font("Segoe UI", 9.5f, FontStyle.Bold) });
         _txtTgChatId = new TextBox { Text = _config.Telegram.ChatId, Location = new Point(25, y + 25), Width = 300 };
         scroll.Controls.Add(_txtTgChatId);
 
@@ -562,19 +630,41 @@ public partial class MainForm : Form
 
     private async Task StartScanAsync()
     {
+        if (_isScanning) return;
+
+        _isScanning = true;
+        _scanCts = new CancellationTokenSource();
         _btnScanNow.Enabled = false;
+        _btnCancelScan.Enabled = true;
+        _btnSaveProfile.Enabled = false;
         _lblStatus.Text = "⏳ İlanlar taranıyor...";
         _lblStatus.ForeColor = Color.Gold;
 
         try
         {
-            await Task.Run(async () =>
-            {
-                await _scanCoordinator.RunScanAsync();
-            });
+            var result = await Task.Run(async () => await _scanCoordinator.RunScanAsync(_scanCts.Token));
 
-            _lblStatus.Text = "✅ Tarama tamamlandı";
-            _lblStatus.ForeColor = Color.FromArgb(150, 255, 150);
+            if (result.Status == ScanStatus.Success)
+            {
+                _lblStatus.Text = $"✅ Tarama başarılı ({result.TotalFound} ilan, {result.EligibleCount} uygun)";
+                _lblStatus.ForeColor = Color.FromArgb(150, 255, 150);
+            }
+            else if (result.Status == ScanStatus.Partial)
+            {
+                _lblStatus.Text = $"⚠️ Kısmi tarama ({result.FailedCount} ilan okunamadı)";
+                _lblStatus.ForeColor = Color.Gold;
+            }
+            else if (result.Status == ScanStatus.Cancelled)
+            {
+                _lblStatus.Text = "⛔ Tarama iptal edildi";
+                _lblStatus.ForeColor = Color.FromArgb(255, 150, 150);
+            }
+            else
+            {
+                _lblStatus.Text = $"❌ Tarama başarısız ({result.ErrorMessage})";
+                _lblStatus.ForeColor = Color.FromArgb(255, 100, 100);
+            }
+
             await LoadAnnouncementsFromDbAsync();
         }
         catch (Exception ex)
@@ -585,7 +675,21 @@ public partial class MainForm : Form
         }
         finally
         {
+            _isScanning = false;
             _btnScanNow.Enabled = true;
+            _btnCancelScan.Enabled = false;
+            _btnSaveProfile.Enabled = true;
+            _scanCts?.Dispose();
+            _scanCts = null;
+        }
+    }
+
+    private void CancelScan()
+    {
+        if (_scanCts != null && !_scanCts.IsCancellationRequested)
+        {
+            _scanCts.Cancel();
+            _lblStatus.Text = "⏳ İptal ediliyor...";
         }
     }
 
@@ -595,11 +699,21 @@ public partial class MainForm : Form
         {
             await _repository.InitializeDatabaseAsync();
             var announcements = await _repository.GetAllAnnouncementsAsync();
+            var profileHash = _changeDetector.ComputeHash(JsonSerializer.Serialize(_profile));
+            var evaluationsMap = await _repository.GetLatestEvaluationsMapAsync(profileHash);
+
+            var lastScan = await _repository.GetLastSuccessfulScanAsync();
+            if (lastScan != null)
+            {
+                _lblLastScanTime.Text = $"Son Başarılı Tarama: {lastScan.FinishedAt?.ToLocalTime():dd.MM.yyyy HH:mm}";
+            }
 
             _cachedItems.Clear();
             foreach (var ann in announcements)
             {
-                var evaluations = await _repository.GetEvaluationsByAnnouncementGuidAsync(ann.Guid);
+                evaluationsMap.TryGetValue(ann.Guid, out var evaluations);
+                evaluations ??= new List<EvaluationRecord>();
+
                 var positions = await _repository.GetPositionsByAnnouncementGuidAsync(ann.Guid);
 
                 var isEligible = evaluations.Any(e => e.Status == EligibilityStatus.Eligible.ToString());
@@ -632,12 +746,10 @@ public partial class MainForm : Form
 
         var filtered = _cachedItems.Where(item =>
         {
-            // Status filter
             if (filterIndex == 1 && item.Status != EligibilityStatus.Eligible) return false;
             if (filterIndex == 2 && item.Status != EligibilityStatus.NeedsReview) return false;
             if (filterIndex == 3 && item.Status != EligibilityStatus.Ineligible) return false;
 
-            // Search filter
             if (!string.IsNullOrWhiteSpace(search))
             {
                 var match = item.Record.InstitutionName.ToLowerInvariant().Contains(search) ||
@@ -676,15 +788,37 @@ public partial class MainForm : Form
         {
             _gridAnnouncements.Rows[0].Selected = true;
         }
+        else
+        {
+            ClearDetailPanel();
+        }
+    }
+
+    private void ClearDetailPanel()
+    {
+        _selectedItem = null;
+        _lblDetailInstitution.Text = "Seçili ilan yok";
+        _lblDetailTitle.Text = "";
+        _lblDetailDates.Text = "";
+        _lblDetailStatusBadge.Text = "BİLGİ";
+        _lblDetailStatusBadge.BackColor = Color.FromArgb(120, 130, 140);
+        _rtbDetailContent.Clear();
     }
 
     private void GridAnnouncements_SelectionChanged(object? sender, EventArgs e)
     {
         if (_gridAnnouncements.SelectedRows.Count == 0)
+        {
+            ClearDetailPanel();
             return;
+        }
 
         var item = _gridAnnouncements.SelectedRows[0].Tag as AnnouncementDisplayItem;
-        if (item == null) return;
+        if (item == null)
+        {
+            ClearDetailPanel();
+            return;
+        }
 
         _selectedItem = item;
 
@@ -711,7 +845,6 @@ public partial class MainForm : Form
             _lblDetailStatusBadge.BackColor = Color.FromArgb(220, 53, 69);
         }
 
-        // Render rich detail text
         var sb = new System.Text.StringBuilder();
         sb.AppendLine($"🏛 KURUM: {item.Record.InstitutionName}");
         if (!string.IsNullOrWhiteSpace(item.Record.UnitName))
@@ -724,8 +857,7 @@ public partial class MainForm : Form
 
         foreach (var pos in item.Positions)
         {
-            var eval = item.Evaluations.FirstOrDefault(e => e.PositionId == pos.Id) ??
-                       item.Evaluations.FirstOrDefault();
+            var eval = item.Evaluations.FirstOrDefault(e => e.PositionKey == pos.PositionKey);
 
             var statusEmoji = eval?.Status == EligibilityStatus.Eligible.ToString() ? "✅" :
                               (eval?.Status == EligibilityStatus.NeedsReview.ToString() ? "⚠️" : "❌");
@@ -736,6 +868,10 @@ public partial class MainForm : Form
             {
                 sb.AppendLine($"   • Durum: {eval.Status}");
                 sb.AppendLine($"   • Gerekçe: {eval.SummaryReason}");
+            }
+            else
+            {
+                sb.AppendLine("   • Durum: Henüz değerlendirilmedi");
             }
             sb.AppendLine();
         }
@@ -748,6 +884,13 @@ public partial class MainForm : Form
         if (string.IsNullOrWhiteSpace(url))
         {
             MessageBox.Show("Bağlantı adresi bulunamadı.", "Uyarı", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) ||
+            (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
+        {
+            MessageBox.Show("Geçersiz veya güvensiz bağlantı adresi.", "Güvenlik Uyarısı", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             return;
         }
 
@@ -769,19 +912,24 @@ public partial class MainForm : Form
     {
         if (_selectedItem == null) return;
 
-        var evaluator = _serviceProvider.GetRequiredService<EligibilityEvaluator>();
         var matchingPositions = new List<PositionEvaluation>();
-
         foreach (var pos in _selectedItem.Positions)
         {
-            var eval = evaluator.EvaluatePosition(new AltIlanResponse
-            {
-                IlanBaslik = pos.Title,
-                Unvan = pos.Unvan,
-                IlanMetni = pos.RawText
-            }, string.Empty, _profile);
+            var evalRecord = _selectedItem.Evaluations.FirstOrDefault(e => e.PositionKey == pos.PositionKey);
+            var status = evalRecord != null && Enum.TryParse<EligibilityStatus>(evalRecord.Status, out var st)
+                ? st
+                : EligibilityStatus.Ineligible;
 
-            matchingPositions.Add(eval);
+            matchingPositions.Add(new PositionEvaluation
+            {
+                PositionKey = pos.PositionKey,
+                PositionTitle = pos.Title,
+                Unvan = pos.Unvan,
+                Cities = pos.Cities,
+                TotalQuota = pos.Quota,
+                Status = status,
+                SummaryReason = evalRecord?.SummaryReason ?? "Değerlendirme mevcut değil"
+            });
         }
 
         var message = _telegramNotifier.FormatAnnouncementMessage(
@@ -789,14 +937,18 @@ public partial class MainForm : Form
             matchingPositions,
             "📢 <b>KULLANICI TARAFINDAN GÖNDERİLEN İLAN</b>");
 
-        var success = await _telegramNotifier.SendMessageAsync(message);
-        if (success)
+        var result = await _telegramNotifier.SendMessageAsync(message);
+        if (result.IsSuccess)
         {
             MessageBox.Show("İlan Telegram'a başarıyla gönderildi!", "Başarılı", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
+        else if (result.Status == TelegramSendStatus.Disabled)
+        {
+            MessageBox.Show("Telegram devre dışı veya yapılandırılmamış. Lütfen Ayarlar sekmesinden etkinleştiriniz.", "Telegram Kapalı", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        }
         else
         {
-            MessageBox.Show("Telegram mesajı gönderilemedi. Lütfen Ayarlar sekmesindeki Bot Token ve Chat ID değerlerini kontrol ediniz.", "Gönderim Hatası", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            MessageBox.Show($"Telegram gönderim hatası:\n{result.ErrorMessage}", "Gönderim Hatası", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
     }
 
@@ -804,6 +956,8 @@ public partial class MainForm : Form
     {
         _profile.Department = _txtProfileDept.Text.Trim();
         _profile.EducationLevel = _cmbProfileLevel.SelectedItem?.ToString() ?? "Ön Lisans";
+        _profile.GraduationStatus = _cmbGraduationStatus.SelectedItem?.ToString() ?? "Mezun";
+        _profile.KpssStatus = _cmbKpssStatus.SelectedItem?.ToString() ?? "Var";
         _profile.KpssScores = new List<KpssScoreEntry>
         {
             new KpssScoreEntry
@@ -813,19 +967,40 @@ public partial class MainForm : Form
                 ExamYear = (int)_numKpssYear.Value
             }
         };
-        _profile.Experience.Years = (double)_numExpYears.Value;
+        _profile.BirthDate = _dtpBirthDate.Value;
+        _profile.MilitaryStatus = _cmbMilitary.SelectedItem?.ToString() ?? "Muaf / Yapıldı";
+        _profile.Experience.TotalMonths = (int)_numExpMonths.Value;
         _profile.Experience.Field = _txtExpField.Text.Trim();
         _profile.Experience.IsKnown = _chkExpKnown.Checked;
+        _profile.Experience.IsDocumented = _chkExpDoc.Checked;
         _profile.CityPreferences = _txtCities.Text.Split(new[] { ',', ';' }, StringSplitOptions.RemoveEmptyEntries).Select(s => s.Trim()).ToList();
         _profile.DrivingLicenses = _txtDriving.Text.Split(new[] { ',', ';' }, StringSplitOptions.RemoveEmptyEntries).Select(s => s.Trim()).ToList();
+        _profile.Certificates = _txtCertificates.Text.Split(new[] { ',', ';' }, StringSplitOptions.RemoveEmptyEntries).Select(s => s.Trim()).ToList();
 
         var json = JsonSerializer.Serialize(_profile, new JsonSerializerOptions { WriteIndented = true });
-        await File.WriteAllTextAsync("profile.json", json);
+        await File.WriteAllTextAsync(AppPaths.ProfileFile, json);
 
-        MessageBox.Show("Profil başarıyla kaydedildi. İlanlar yeni profilinize göre yeniden değerlendiriliyor...", "Profil Kaydedildi", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        _logger.LogInformation("Profil güncellendi: {File}", AppPaths.ProfileFile);
 
-        // Re-evaluate in background
-        await StartScanAsync();
+        // Re-evaluate cached postings locally
+        _btnSaveProfile.Enabled = false;
+        _lblStatus.Text = "⏳ İlanlar yerel olarak yeniden değerlendiriliyor...";
+
+        try
+        {
+            await Task.Run(async () => await _scanCoordinator.ReevaluateCachedAnnouncementsAsync(_profile));
+            await LoadAnnouncementsFromDbAsync();
+            _lblStatus.Text = "✅ Profil güncellendi ve ilanlar yeniden değerlendirildi";
+            MessageBox.Show("Profil kaydedildi ve önbellekteki tüm aktif ilanlar başarıyla yeniden değerlendirildi.", "Tamamlandı", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Yerel yeniden değerlendirme başarısız.");
+        }
+        finally
+        {
+            _btnSaveProfile.Enabled = true;
+        }
     }
 
     private void SaveAppSettings()
@@ -836,7 +1011,7 @@ public partial class MainForm : Form
 
         var fullConfig = new { KariyerTakip = _config };
         var json = JsonSerializer.Serialize(fullConfig, new JsonSerializerOptions { WriteIndented = true });
-        File.WriteAllText("appsettings.json", json);
+        File.WriteAllText(AppPaths.AppSettingsFile, json);
 
         MessageBox.Show("Ayarlar başarıyla kaydedildi.", "Ayarlar Kaydedildi", MessageBoxButtons.OK, MessageBoxIcon.Information);
     }
@@ -884,12 +1059,4 @@ public partial class MainForm : Form
             _btnTgTest.Enabled = true;
         }
     }
-}
-
-public class AnnouncementDisplayItem
-{
-    public AnnouncementRecord Record { get; set; } = new();
-    public List<EvaluationRecord> Evaluations { get; set; } = new();
-    public List<PositionRecord> Positions { get; set; } = new();
-    public EligibilityStatus Status { get; set; }
 }

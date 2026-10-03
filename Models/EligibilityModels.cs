@@ -4,7 +4,7 @@ public enum ConditionStatus
 {
     Satisfied,    // Sağlanıyor
     Unsatisfied,  // Sağlanmıyor
-    Unknown       // Bilinmiyor / Eksik bilgi
+    Unknown       // Bilinmiyor / Belirsiz / Ek kontrol gerekli
 }
 
 public enum EligibilityStatus
@@ -21,11 +21,12 @@ public class ConditionEvaluation
     public string RequiredValue { get; set; } = string.Empty;
     public string UserValue { get; set; } = string.Empty;
     public string Explanation { get; set; } = string.Empty;
-    public string SourceText { get; set; } = string.Empty;
+    public string SourceText { get; set; } = string.Empty; // Source sentence / clause from official text
 }
 
 public class PositionEvaluation
 {
+    public string PositionKey { get; set; } = string.Empty;
     public string PositionTitle { get; set; } = string.Empty;
     public string? Unvan { get; set; }
     public string? Cities { get; set; }

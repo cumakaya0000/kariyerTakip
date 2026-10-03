@@ -35,14 +35,19 @@ public class NotificationDispatcher
             if (cancellationToken.IsCancellationRequested)
                 break;
 
-            var success = await _notifier.SendMessageAsync(item.MessagePayload, cancellationToken);
-            if (success)
+            var result = await _notifier.SendMessageAsync(item.MessagePayload, cancellationToken);
+
+            if (result.Status == TelegramSendStatus.Success)
             {
                 await _repository.MarkNotificationSentAsync(item.Id);
             }
+            else if (result.Status == TelegramSendStatus.Disabled)
+            {
+                await _repository.MarkNotificationDisabledAsync(item.Id);
+            }
             else
             {
-                await _repository.MarkNotificationFailedAsync(item.Id, "Telegram gönderim hatası veya ağ sorunu");
+                await _repository.MarkNotificationFailedAsync(item.Id, result.ErrorMessage ?? "Gönderim başarısız");
             }
 
             // Small delay to prevent Telegram rate limit (e.g., 30 msg/sec limit)

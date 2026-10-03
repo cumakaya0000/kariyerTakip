@@ -26,11 +26,38 @@ public class ChangeDetector
         return Convert.ToHexString(hashBytes);
     }
 
-    public ChangeType DetectChanges(AnnouncementRecord? existingRecord, AnnouncementRecord currentRecord, string currentContentHash)
+    public string BuildPositionContentHash(PositionRecord position, string generalText)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine(position.Title);
+        sb.AppendLine(position.Unvan);
+        sb.AppendLine(position.Cities);
+        sb.AppendLine(position.Quota.ToString());
+        sb.AppendLine(position.RawText);
+        sb.AppendLine(generalText);
+        return ComputeHash(sb.ToString());
+    }
+
+    public string GenerateDeduplicationKey(string announcementGuid, string positionKey, string eventType, string eventVersionHash)
+    {
+        return $"{announcementGuid}:{positionKey}:{eventType}:{eventVersionHash}";
+    }
+
+    public ChangeType DetectChanges(
+        AnnouncementRecord? existingRecord,
+        AnnouncementRecord currentRecord,
+        string currentContentHash,
+        bool wasPreviouslyEligible,
+        bool isCurrentlyEligible)
     {
         if (existingRecord == null)
         {
             return ChangeType.NewAnnouncement;
+        }
+
+        if (!wasPreviouslyEligible && isCurrentlyEligible)
+        {
+            return ChangeType.NewlyEligible;
         }
 
         if (existingRecord.EndDate != currentRecord.EndDate)
