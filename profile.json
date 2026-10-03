@@ -1,0 +1,27 @@
+{
+  "Department": "Bilgisayar Programcılığı",
+  "EducationLevel": "Ön Lisans",
+  "GraduationStatus": "Mezun",
+  "KpssStatus": "Var",
+  "KpssScores": [
+    {
+      "ScoreType": "P93",
+      "ExamYear": 2024,
+      "Score": 75.0
+    }
+  ],
+  "CityPreferences": [],
+  "Experience": {
+    "Field": "Bilgi İşlem / Yazılım",
+    "Years": 0,
+    "IsDocumented": false,
+    "IsKnown": false
+  },
+  "Certificates": [],
+  "DrivingLicenses": [ "B" ],
+  "OtherConditions": {
+    "MilitaryStatus": "Muaf / Yapıldı",
+    "MaxAge": 35
+  },
+  "WorkPreferences": [ "Sözleşmeli", "Kadrolu" ]
+}
