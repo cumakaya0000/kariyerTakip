@@ -77,6 +77,8 @@ public partial class MainForm : Form
     // Theme
     private Button _btnThemeToggle = null!;
     private bool _isDarkMode = false;
+    // Tooltip for grid rows
+    private ToolTip _gridTooltip = null!;
 
     // Data Cache
     private List<AnnouncementDisplayItem> _cachedItems = new();
@@ -296,6 +298,20 @@ public partial class MainForm : Form
         _gridAnnouncements.Columns["Title"]!.FillWeight = 60;
         _gridAnnouncements.Columns["EndDate"]!.Width = 120;
         _gridAnnouncements.Columns["EndDate"]!.FillWeight = 25;
+        // Initialize tooltip for rows
+        _gridTooltip = new ToolTip { AutoPopDelay = 5000, InitialDelay = 500, ReshowDelay = 200, ShowAlways = true };
+        // Show placeholder on hover
+        _gridAnnouncements.CellToolTipTextNeeded += (s, e) => {
+            if (e.RowIndex >= 0)
+                e.ToolTipText = "İlana git";
+        };
+        // Change cursor to hand on hover
+        _gridAnnouncements.CellMouseEnter += (s, e) => {
+            if (e.RowIndex >= 0) _gridAnnouncements.Cursor = Cursors.Hand;
+        };
+        _gridAnnouncements.CellMouseLeave += (s, e) => {
+            _gridAnnouncements.Cursor = Cursors.Default;
+        };
 
         _gridAnnouncements.SelectionChanged += GridAnnouncements_SelectionChanged;
         _gridAnnouncements.CellDoubleClick += GridAnnouncements_CellDoubleClick;
