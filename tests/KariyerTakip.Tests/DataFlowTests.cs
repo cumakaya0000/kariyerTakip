@@ -57,7 +57,8 @@ public class DataFlowTests
             {
                 using var fixture = new Fixture();
                 fixture.SeedAsync().GetAwaiter().GetResult();
-                using var services = new ServiceCollection().BuildServiceProvider();
+                using var services = new ServiceCollection().AddSingleton(new ProfileStore(
+                    Path.Combine(Path.GetTempPath(), Guid.NewGuid() + ".json"))).BuildServiceProvider();
                 using var form = new MainForm(services, fixture.Coordinator, fixture.Repository,
                     fixture.Notifier, new ChangeDetector(), fixture.Profile, fixture.Config,
                     NullLogger<MainForm>.Instance);
@@ -121,7 +122,8 @@ public class DataFlowTests
                     AnnouncementGuid = "test-ann", PositionKey = "cached-key", ProfileHash = profileHash,
                     Status = evaluation.Status.ToString(), DetailsJson = JsonSerializer.Serialize(evaluation)
                 }).GetAwaiter().GetResult();
-                using var services = new ServiceCollection().BuildServiceProvider();
+                using var services = new ServiceCollection().AddSingleton(new ProfileStore(
+                    Path.Combine(Path.GetTempPath(), Guid.NewGuid() + ".json"))).BuildServiceProvider();
                 using var form = new MainForm(services, fixture.Coordinator, fixture.Repository,
                     fixture.Notifier, new ChangeDetector(), fixture.Profile, fixture.Config,
                     NullLogger<MainForm>.Instance);
@@ -184,6 +186,74 @@ public class DataFlowTests
         thread.SetApartmentState(ApartmentState.STA);
         thread.Start();
         Assert.True(thread.Join(TimeSpan.FromSeconds(30)), "Çoklu seçim testi zaman aşımına uğradı.");
+        if (failure != null) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
+    }
+
+    [Fact]
+    public void HeaderAndEditors_KeepSelectionsAndThemeAfterReload()
+    {
+        Exception? failure = null;
+        var thread = new Thread(() =>
+        {
+            try
+            {
+                using var fixture = new Fixture();
+                fixture.SeedAsync().GetAwaiter().GetResult();
+                fixture.Profile.Value.CityPreferences = new() { "Ankara", "İzmir" };
+                fixture.Profile.Value.DrivingLicenses = new() { "B", "A2" };
+                fixture.Profile.Value.Department = "Önceden kaydedilen özel bölüm";
+                fixture.Profile.Value.KpssScores = new() { new() { ScoreType = "P93", ExamYear = 2024, Score = 85.5 } };
+                using var services = new ServiceCollection().AddSingleton(new ProfileStore(
+                    Path.Combine(Path.GetTempPath(), Guid.NewGuid() + ".json"))).BuildServiceProvider();
+                using var form = new MainForm(services, fixture.Coordinator, fixture.Repository,
+                    fixture.Notifier, new ChangeDetector(), fixture.Profile, fixture.Config, NullLogger<MainForm>.Instance);
+                form.Opacity = 0; form.ShowInTaskbar = false; form.Show();
+                form.Size = form.MinimumSize;
+                var status = Field<Label>(form, "_lblStatus");
+                status.Text = "Profil kaydedildi ve ilanlar yeniden değerlendirildi; uzun durum açıklaması";
+                form.PerformLayout();
+                var statusBounds = status.RectangleToScreen(status.ClientRectangle);
+                foreach (var name in new[] { "_btnThemeToggle", "_btnCancelScan", "_btnScanNow" })
+                {
+                    var button = Field<Button>(form, name);
+                    Assert.False(statusBounds.IntersectsWith(button.RectangleToScreen(button.ClientRectangle)));
+                    Assert.True(form.RectangleToScreen(form.ClientRectangle).Contains(button.RectangleToScreen(button.ClientRectangle)));
+                }
+                var editor = Field<ProfileEditorControl>(form, "_profileEditor");
+                var department = (ComboBox)typeof(ProfileEditorControl).GetField("_department", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(editor)!;
+                Assert.Equal(ComboBoxStyle.DropDownList, department.DropDownStyle);
+                var read = (ProfileOptions)typeof(ProfileEditorControl).GetMethod("ReadProfile", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(editor, null)!;
+                Assert.Equal(fixture.Profile.Value.Department, read.Department);
+                Assert.Equal(fixture.Profile.Value.CityPreferences, read.CityPreferences);
+                Assert.Equal(fixture.Profile.Value.DrivingLicenses, read.DrivingLicenses);
+                Assert.Equal(85.5, Assert.Single(read.KpssScores).Score);
+                var toggle = typeof(MainForm).GetMethod("ToggleTheme", BindingFlags.Instance | BindingFlags.NonPublic)!;
+                var previews = Environment.GetEnvironmentVariable("KARIYERTAKIP_THEME_PREVIEW_DIR");
+                foreach (var dark in new[] { false, true, false })
+                {
+                    if (dark != Field<bool>(form, "_isDarkMode")) toggle.Invoke(form, null);
+                    InvokeLoad(form);
+                    var grid = Field<DataGridView>(form, "_gridAnnouncements");
+                    Assert.Equal(dark, grid.DefaultCellStyle.BackColor.GetBrightness() < 0.5f);
+                    Assert.Equal(dark, editor.BackColor.GetBrightness() < 0.5f);
+                    var tabs = Field<TabControl>(form, "_tabControl");
+                    if (previews != null)
+                    {
+                        Directory.CreateDirectory(previews);
+                        foreach (var index in new[] { 0, 1, 2 })
+                        {
+                            tabs.SelectedIndex = index; form.PerformLayout();
+                            using var bitmap = new System.Drawing.Bitmap(form.Width, form.Height);
+                            form.DrawToBitmap(bitmap, new System.Drawing.Rectangle(0, 0, form.Width, form.Height));
+                            bitmap.Save(Path.Combine(previews, $"{(dark ? "dark" : "light")}-{index}.png"));
+                        }
+                    }
+                }
+            }
+            catch (Exception ex) { failure = ex; }
+        });
+        thread.SetApartmentState(ApartmentState.STA); thread.Start();
+        Assert.True(thread.Join(TimeSpan.FromSeconds(30)), "Tema ve yerleşim testi zaman aşımına uğradı.");
         if (failure != null) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
     }
 

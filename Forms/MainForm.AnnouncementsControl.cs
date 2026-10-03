@@ -269,7 +269,7 @@ public partial class MainForm
             DetectUrls = false
         };
 
-        var detailTabs = new TabControl { Dock = DockStyle.Fill };
+        var detailTabs = new ThemeTabControl { Dock = DockStyle.Fill };
         var detailPage = new TabPage("Kadro ayrıntıları");
         detailPage.Controls.Add(owner._rtbDetailContent);
         var trackingPage = new TabPage("Başvuru takibi ve notlar");

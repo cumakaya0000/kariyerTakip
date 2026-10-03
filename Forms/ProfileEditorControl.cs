@@ -10,7 +10,7 @@ public sealed class ProfileEditorControl : UserControl
     private NamedProfile _active;
     private readonly ComboBox _profiles = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 240 };
     private readonly TextBox _newName = new() { PlaceholderText = "Yeni profil adı", Width = 190 };
-    private readonly TextBox _department = new();
+    private readonly ComboBox _department = Choices(ProfileChoices.Departments.Cast<object>().ToArray());
     private readonly ComboBox _level = Choices("Ön Lisans", "Lisans", "Ortaöğretim / Lise", "Yüksek Lisans");
     private readonly ComboBox _graduation = Choices("Mezun", "Öğrenci", "Bilinmiyor");
     private readonly ComboBox _kpssStatus = Choices("Var", "Yok", "Bilinmiyor");
@@ -21,8 +21,8 @@ public sealed class ProfileEditorControl : UserControl
     private readonly TextBox _field = new();
     private readonly CheckBox _known = new() { Text = "Tecrübe bilgim biliniyor", AutoSize = true };
     private readonly CheckBox _documented = new() { Text = "Tecrübem belgelenebilir", AutoSize = true };
-    private readonly TextBox _cities = new();
-    private readonly TextBox _licenses = new();
+    private readonly MultiChoiceControl _cities = new(ProfileChoices.Cities, "Seçim yoksa tüm Türkiye'deki ilanlar değerlendirilir.");
+    private readonly MultiChoiceControl _licenses = new(ProfileChoices.Licenses, "Ehliyetiniz yoksa listeyi boş bırakın.");
     private readonly TextBox _certificates = new();
     private readonly CheckedListBox _work = new() { Height = 95, CheckOnClick = true };
     private readonly Button _save = new() { Text = "Profili kaydet ve ilanları yeniden değerlendir", AutoSize = true, Height = 40 };
@@ -51,8 +51,12 @@ public sealed class ProfileEditorControl : UserControl
         AddRow(layout, "Öğrenim düzeyi", _level);
         AddRow(layout, "Mezuniyet", _graduation);
         AddRow(layout, "KPSS durumu", _kpssStatus);
-        _scores.Columns.Add("Type", "Puan türü (P93, P3…)");
-        _scores.Columns.Add("Year", "Sınav yılı");
+        var scoreTypes = new DataGridViewComboBoxColumn { Name = "Type", HeaderText = "Puan türü", DisplayStyle = DataGridViewComboBoxDisplayStyle.DropDownButton };
+        scoreTypes.Items.AddRange(Enumerable.Range(1, 121).Select(n => (object)$"P{n}").ToArray());
+        _scores.Columns.Add(scoreTypes);
+        var years = new DataGridViewComboBoxColumn { Name = "Year", HeaderText = "Sınav yılı", DisplayStyle = DataGridViewComboBoxDisplayStyle.DropDownButton };
+        years.Items.AddRange(Enumerable.Range(2000, DateTime.Today.Year - 1999).Reverse().Cast<object>().ToArray());
+        _scores.Columns.Add(years);
         _scores.Columns.Add("Score", "Puan (0–100)");
         AddRow(layout, "KPSS puanları", _scores);
         AddRow(layout, "Doğum tarihi (isteğe bağlı)", _birth);
@@ -61,7 +65,7 @@ public sealed class ProfileEditorControl : UserControl
         AddRow(layout, "Tecrübe alanı", _field);
         AddRow(layout, "", _known);
         AddRow(layout, "", _documented);
-        AddRow(layout, "Şehirler (virgülle)", _cities);
+        AddRow(layout, "Tercih edilen şehirler", _cities);
         AddRow(layout, "Ehliyet sınıfları", _licenses);
         AddRow(layout, "Sertifikalar (virgülle)", _certificates);
         _work.Items.AddRange(new object[] { "Sözleşmeli", "Kadrolu", "İşçi", "Geçici" });
@@ -126,14 +130,22 @@ public sealed class ProfileEditorControl : UserControl
     private void PopulateFields()
     {
         var p = _active.Profile;
-        _department.Text = p.Department; _level.SelectedItem = p.EducationLevel; _graduation.SelectedItem = p.GraduationStatus;
+        if (!string.IsNullOrWhiteSpace(p.Department) && !_department.Items.Contains(p.Department)) _department.Items.Add(p.Department);
+        _department.SelectedItem = p.Department; _level.SelectedItem = p.EducationLevel; _graduation.SelectedItem = p.GraduationStatus;
         _kpssStatus.SelectedItem = p.KpssStatus; _military.SelectedItem = p.MilitaryStatus;
         _scores.Rows.Clear();
-        foreach (var score in p.KpssScores) _scores.Rows.Add(score.ScoreType, score.ExamYear, score.Score);
+        foreach (var score in p.KpssScores)
+        {
+            var types = (DataGridViewComboBoxColumn)_scores.Columns[0];
+            var years = (DataGridViewComboBoxColumn)_scores.Columns[1];
+            if (!types.Items.Contains(score.ScoreType)) types.Items.Add(score.ScoreType);
+            if (!years.Items.Contains(score.ExamYear)) years.Items.Add(score.ExamYear);
+            _scores.Rows.Add(score.ScoreType, score.ExamYear, score.Score);
+        }
         _birth.Value = p.BirthDate ?? DateTime.Today; _birth.Checked = p.BirthDate.HasValue;
         _months.Value = Math.Clamp(p.Experience.TotalMonths, 0, 1200); _field.Text = p.Experience.Field;
         _known.Checked = p.Experience.IsKnown; _documented.Checked = p.Experience.IsDocumented;
-        _cities.Text = string.Join(", ", p.CityPreferences); _licenses.Text = string.Join(", ", p.DrivingLicenses);
+        _cities.SetValues(p.CityPreferences); _licenses.SetValues(p.DrivingLicenses);
         _certificates.Text = string.Join(", ", p.Certificates);
         for (int i = 0; i < _work.Items.Count; i++) _work.SetItemChecked(i, p.WorkPreferences.Contains(_work.Items[i]!.ToString()!));
     }
@@ -152,13 +164,15 @@ public sealed class ProfileEditorControl : UserControl
             scores.Add(new KpssScoreEntry { ScoreType = type, ExamYear = year, Score = score });
         }
         if (_birth.Checked && _birth.Value.Date > DateTime.Today) throw new InvalidOperationException("Doğum tarihi gelecekte olamaz.");
+        if (_department.SelectedItem is not string department || string.IsNullOrWhiteSpace(department))
+            throw new InvalidOperationException("Listeden bölümünüzü seçin.");
         return new ProfileOptions
         {
-            Department = _department.Text.Trim(), EducationLevel = _level.SelectedItem?.ToString() ?? "Ön Lisans",
+            Department = department, EducationLevel = _level.SelectedItem?.ToString() ?? "Ön Lisans",
             GraduationStatus = _graduation.SelectedItem?.ToString() ?? "Bilinmiyor", KpssStatus = _kpssStatus.SelectedItem?.ToString() ?? "Bilinmiyor",
             KpssScores = scores, BirthDate = _birth.Checked ? _birth.Value.Date : null, MilitaryStatus = _military.SelectedItem?.ToString() ?? "Bilinmiyor",
             Experience = new ExperienceEntry { TotalMonths = (int)_months.Value, Field = _field.Text.Trim(), IsKnown = _known.Checked, IsDocumented = _documented.Checked },
-            CityPreferences = Split(_cities.Text), DrivingLicenses = Split(_licenses.Text), Certificates = Split(_certificates.Text),
+            CityPreferences = _cities.ReadValues(), DrivingLicenses = _licenses.ReadValues(), Certificates = Split(_certificates.Text),
             WorkPreferences = _work.CheckedItems.Cast<string>().ToList()
         };
     }

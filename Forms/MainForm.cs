@@ -114,7 +114,7 @@ public partial class MainForm : Form
         var topPanel = new Panel
         {
             Dock = DockStyle.Top,
-            Height = 72,
+            Height = 112,
             BackColor = Color.FromArgb(15, 37, 65),
             Padding = new Padding(15, 10, 15, 10)
         };
@@ -173,19 +173,20 @@ public partial class MainForm : Form
             Text = "Hazır",
             Font = new Font("Segoe UI", 9.5f),
             ForeColor = Color.FromArgb(150, 220, 150),
-            AutoSize = true,
-            Anchor = AnchorStyles.Top | AnchorStyles.Right,
-            Location = new Point(topPanel.Width - 460, 26)
+            AutoSize = false,
+            AutoEllipsis = true,
+            Dock = DockStyle.Fill,
+            TextAlign = ContentAlignment.MiddleLeft
         };
 
         _btnThemeToggle = new Button
         {
-            Text = "🌙",
-            Font = new Font("Segoe UI", 14, FontStyle.Regular),
+            Text = "Koyu",
+            Font = new Font("Segoe UI", 9.5f, FontStyle.Bold),
             ForeColor = Color.Gold,
             BackColor = Color.FromArgb(35, 60, 90),
             FlatStyle = FlatStyle.Flat,
-            Size = new Size(42, 42),
+            Size = new Size(65, 42),
             Cursor = Cursors.Hand,
             Anchor = AnchorStyles.Top | AnchorStyles.Right,
             Location = new Point(topPanel.Width - 285, 15)
@@ -193,16 +194,39 @@ public partial class MainForm : Form
         _btnThemeToggle.FlatAppearance.BorderSize = 0;
         _btnThemeToggle.Click += (s, e) => ToggleTheme();
 
-        topPanel.Controls.Add(lblAppTitle);
-        topPanel.Controls.Add(_lblLastScanTime);
-        topPanel.Controls.Add(_btnScanNow);
-        topPanel.Controls.Add(_btnCancelScan);
-        topPanel.Controls.Add(_btnThemeToggle);
-        topPanel.Controls.Add(_lblStatus);
+        var headerLayout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 2 };
+        headerLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        headerLayout.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        headerLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        headerLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 30));
+        var titleLayout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 2 };
+        titleLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        titleLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        lblAppTitle.Margin = new Padding(0);
+        _lblLastScanTime.AutoSize = false;
+        _lblLastScanTime.AutoEllipsis = true;
+        _lblLastScanTime.Dock = DockStyle.Fill;
+        _lblLastScanTime.Height = 22;
+        titleLayout.Controls.Add(lblAppTitle, 0, 0);
+        titleLayout.Controls.Add(_lblLastScanTime, 0, 1);
+        var headerActions = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Anchor = AnchorStyles.Right | AnchorStyles.Top };
+        foreach (var button in new[] { _btnThemeToggle, _btnCancelScan, _btnScanNow })
+        {
+            button.Anchor = AnchorStyles.None;
+            button.AutoSize = true;
+            button.MinimumSize = button.Size;
+            button.Margin = new Padding(6, 3, 0, 3);
+            headerActions.Controls.Add(button);
+        }
+        headerLayout.Controls.Add(titleLayout, 0, 0);
+        headerLayout.Controls.Add(headerActions, 1, 0);
+        headerLayout.Controls.Add(_lblStatus, 0, 1);
+        headerLayout.SetColumnSpan(_lblStatus, 2);
+        topPanel.Controls.Add(headerLayout);
         Controls.Add(topPanel);
 
         // 2. Main TabControl
-        _tabControl = new TabControl
+        _tabControl = new ThemeTabControl
         {
             Dock = DockStyle.Fill,
             Padding = new Point(15, 8),
@@ -231,6 +255,7 @@ public partial class MainForm : Form
 
         Controls.Add(_tabControl);
         _tabControl.BringToFront();
+        ApplyTheme();
 
         Shown += async (s, e) => await LoadAnnouncementsFromDbAsync();
     }
@@ -452,11 +477,11 @@ public partial class MainForm : Form
 
                 if (item.Status == EligibilityStatus.Eligible)
                 {
-                    _gridAnnouncements.Rows[rowIdx].DefaultCellStyle.BackColor = Color.FromArgb(235, 255, 235);
+                    _gridAnnouncements.Rows[rowIdx].DefaultCellStyle.BackColor = _isDarkMode ? Color.FromArgb(30, 60, 30) : Color.FromArgb(235, 255, 235);
                 }
                 else if (item.Status == EligibilityStatus.NeedsReview)
                 {
-                    _gridAnnouncements.Rows[rowIdx].DefaultCellStyle.BackColor = Color.FromArgb(255, 250, 230);
+                    _gridAnnouncements.Rows[rowIdx].DefaultCellStyle.BackColor = _isDarkMode ? Color.FromArgb(60, 55, 25) : Color.FromArgb(255, 250, 230);
                 }
             }
 
@@ -706,7 +731,7 @@ public partial class MainForm : Form
     private void ToggleTheme()
     {
         _isDarkMode = !_isDarkMode;
-        _btnThemeToggle.Text = _isDarkMode ? "☀️" : "🌙";
+        _btnThemeToggle.Text = _isDarkMode ? "Açık" : "Koyu";
         ApplyTheme();
     }
 
@@ -766,16 +791,20 @@ public partial class MainForm : Form
         if (topPanel != null)
         {
             topPanel.BackColor = headerBg;
-            foreach (Control c in topPanel.Controls)
+            void ThemeHeader(Control parent)
             {
-                if (c is Label lbl)
+                foreach (Control c in parent.Controls)
                 {
-                    if (lbl == _lblLastScanTime)
-                        lbl.ForeColor = headerSubFg;
-                    else if (lbl != _lblStatus)
-                        lbl.ForeColor = Color.White;
+                    if (c is Label lbl && lbl != _lblStatus)
+                        lbl.ForeColor = lbl == _lblLastScanTime ? headerSubFg : Color.White;
+                    else if (c is Panel)
+                    {
+                        c.BackColor = headerBg;
+                        ThemeHeader(c);
+                    }
                 }
             }
+            ThemeHeader(topPanel);
             _btnThemeToggle.BackColor = _isDarkMode ? Color.FromArgb(50, 55, 60) : Color.FromArgb(35, 60, 90);
         }
 
@@ -811,6 +840,7 @@ public partial class MainForm : Form
         _rtbDetailContent.ForeColor = textPrimary;
 
         // ── Tabs & Tab Pages ──
+        if (_tabControl is ThemeTabControl mainTabs) mainTabs.SetPalette(formBg, cardBg, textPrimary);
         foreach (TabPage tp in _tabControl.TabPages)
         {
             tp.BackColor = tabBg;
@@ -844,6 +874,10 @@ public partial class MainForm : Form
                     page.BackColor = panelBg;
                     ApplyThemeToChildren(page, panelBg, cardBg, textPrimary, textSecondary);
                     break;
+                case ThemeTabControl tabs:
+                    tabs.SetPalette(panelBg, cardBg, textPrimary);
+                    ApplyThemeToChildren(tabs, panelBg, cardBg, textPrimary, textSecondary);
+                    break;
                 case DataGridView grid:
                     grid.BackgroundColor = cardBg;
                     grid.DefaultCellStyle.BackColor = cardBg;
@@ -851,6 +885,14 @@ public partial class MainForm : Form
                     grid.ColumnHeadersDefaultCellStyle.BackColor = panelBg;
                     grid.ColumnHeadersDefaultCellStyle.ForeColor = textPrimary;
                     grid.EnableHeadersVisualStyles = false;
+                    grid.AlternatingRowsDefaultCellStyle.BackColor = _isDarkMode ? Color.FromArgb(48, 48, 55) : Color.FromArgb(248, 250, 252);
+                    grid.DefaultCellStyle.SelectionBackColor = _isDarkMode ? Color.FromArgb(60, 80, 120) : Color.FromArgb(200, 220, 250);
+                    grid.DefaultCellStyle.SelectionForeColor = textPrimary;
+                    grid.RowHeadersDefaultCellStyle.BackColor = panelBg;
+                    grid.RowHeadersDefaultCellStyle.ForeColor = textPrimary;
+                    grid.RowHeadersDefaultCellStyle.SelectionBackColor = grid.DefaultCellStyle.SelectionBackColor;
+                    grid.RowHeadersDefaultCellStyle.SelectionForeColor = textPrimary;
+                    grid.GridColor = _isDarkMode ? Color.FromArgb(65, 65, 70) : Color.FromArgb(220, 225, 230);
                     break;
                 case ListBox list:
                     list.BackColor = cardBg; list.ForeColor = textPrimary;
@@ -858,6 +900,11 @@ public partial class MainForm : Form
                 case Panel p:
                     p.BackColor = panelBg;
                     ApplyThemeToChildren(p, panelBg, cardBg, textPrimary, textSecondary);
+                    break;
+                case UserControl control:
+                    control.BackColor = panelBg;
+                    control.ForeColor = textPrimary;
+                    ApplyThemeToChildren(control, panelBg, cardBg, textPrimary, textSecondary);
                     break;
                 case SplitContainer sc:
                     sc.BackColor = _isDarkMode ? Color.FromArgb(50, 50, 55) : Color.FromArgb(230, 235, 240);
@@ -881,6 +928,18 @@ public partial class MainForm : Form
                     break;
                 case CheckBox chk:
                     chk.ForeColor = textPrimary;
+                    chk.BackColor = panelBg;
+                    break;
+                case Button button:
+                    // Keep the colored portal actions; style ordinary editor buttons for both themes.
+                    if (button != _btnOpenKariyerKapisi && button != _btnOpenEDevlet && button != _btnSendTelegramNow && button != _btnOpenSelectedAnnouncements)
+                    {
+                        button.UseVisualStyleBackColor = false;
+                        button.FlatStyle = FlatStyle.Flat;
+                        button.BackColor = _isDarkMode ? Color.FromArgb(55, 65, 80) : Color.FromArgb(235, 241, 248);
+                        button.ForeColor = textPrimary;
+                        button.FlatAppearance.BorderColor = _isDarkMode ? Color.FromArgb(85, 95, 110) : Color.FromArgb(185, 200, 215);
+                    }
                     break;
                 case DateTimePicker dtp:
                     dtp.CalendarMonthBackground = cardBg;
