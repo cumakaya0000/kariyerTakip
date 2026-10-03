@@ -22,15 +22,20 @@ jobs:
         run: ./scripts/PrepareInstallerCompiler.ps1
       - shell: pwsh
         run: ./scripts/BuildInstaller.ps1
+      - shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path artifacts/release-assets -Force | Out-Null
+          Copy-Item -LiteralPath artifacts/publish/win-x64/KariyerTakip.exe -Destination artifacts/release-assets/KariyerTakip.exe
+          $exeHash = (Get-FileHash -LiteralPath artifacts/release-assets/KariyerTakip.exe -Algorithm SHA256).Hash.ToLowerInvariant()
+          [IO.File]::WriteAllText("artifacts/release-assets/KariyerTakip.exe.sha256", "$exeHash  KariyerTakip.exe`n")
+          Copy-Item -LiteralPath artifacts/KariyerTakip-Kurulum.exe -Destination artifacts/release-assets/KariyerTakip-Kurulum.exe
+          Copy-Item -LiteralPath artifacts/KariyerTakip-Kurulum.exe.sha256 -Destination artifacts/release-assets/KariyerTakip-Kurulum.exe.sha256
+          Copy-Item -LiteralPath artifacts/KariyerTakip-win-x64.zip -Destination artifacts/release-assets/KariyerTakip-win-x64.zip
+          Copy-Item -LiteralPath artifacts/KariyerTakip-win-x64.zip.sha256 -Destination artifacts/release-assets/KariyerTakip-win-x64.zip.sha256
       - uses: actions/upload-artifact@v4
         with:
           name: KariyerTakip-win-x64
-          path: |
-            artifacts/publish/win-x64/KariyerTakip.exe
-            artifacts/KariyerTakip-win-x64.zip
-            artifacts/KariyerTakip-win-x64.zip.sha256
-            artifacts/KariyerTakip-Kurulum.exe
-            artifacts/KariyerTakip-Kurulum.exe.sha256
+          path: artifacts/release-assets/*
   release:
     if: startsWith(github.ref, 'refs/tags/v')
     needs: package
@@ -42,9 +47,12 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: KariyerTakip-win-x64
+          path: release-assets
       - shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.ref_name }}
           RELEASE_REPO: ${{ github.repository }}
-        run: gh release create "$env:RELEASE_TAG" KariyerTakip.exe KariyerTakip-Kurulum.exe KariyerTakip-Kurulum.exe.sha256 KariyerTakip-win-x64.zip KariyerTakip-win-x64.zip.sha256 --repo "$env:RELEASE_REPO" --notes-file CHANGELOG.md
+        run: |
+          $assets = Get-ChildItem -Path release-assets -File | ForEach-Object { $_.FullName }
+          gh release create "$env:RELEASE_TAG" @assets --repo "$env:RELEASE_REPO" --notes-file CHANGELOG.md --clobber
