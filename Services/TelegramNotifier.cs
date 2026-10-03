@@ -4,6 +4,8 @@ using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using KariyerTakip.Models;
+using KariyerTakip.Common;
+using System.Text.Json;
 
 namespace KariyerTakip.Services;
 
@@ -20,6 +22,7 @@ public class TelegramSendResult
     public TelegramSendStatus Status { get; set; }
     public string? ErrorMessage { get; set; }
     public int? StatusCode { get; set; }
+    public DateTime? RetryAfterUtc { get; set; }
 
     public bool IsSuccess => Status == TelegramSendStatus.Success;
 
@@ -46,9 +49,11 @@ public class TelegramNotifier
                                 !string.IsNullOrWhiteSpace(_telegramOptions.BotToken) &&
                                 !string.IsNullOrWhiteSpace(_telegramOptions.ChatId);
 
-    public async Task<TelegramSendResult> SendMessageAsync(string htmlMessage, CancellationToken cancellationToken = default)
+    public async Task<TelegramSendResult> SendMessageAsync(string htmlMessage, CancellationToken cancellationToken = default,
+        int nextChunkIndex = 0, Func<int, Task>? saveProgress = null, TelegramOptions? credentials = null)
     {
-        if (!IsConfigured)
+        var options = credentials ?? _telegramOptions;
+        if (!options.Enabled || string.IsNullOrWhiteSpace(options.BotToken) || string.IsNullOrWhiteSpace(options.ChatId))
         {
             _logger.LogInformation("[Telegram Kapalı/Yapılandırılmamış] Mesaj gönderilmedi.");
             return TelegramSendResult.Disabled();
@@ -56,50 +61,75 @@ public class TelegramNotifier
 
         try
         {
-            var chunks = SplitMessage(htmlMessage, 4000);
-            foreach (var chunk in chunks)
+            var chunks = TelegramMessageSplitter.Split(htmlMessage);
+            if (nextChunkIndex < 0 || nextChunkIndex > chunks.Count)
+                return TelegramSendResult.Permanent("Geçersiz bildirim parça numarası.");
+            for (int i = nextChunkIndex; i < chunks.Count; i++)
             {
-                var url = $"https://api.telegram.org/bot{_telegramOptions.BotToken}/sendMessage";
+                var chunk = chunks[i];
+                var url = $"https://api.telegram.org/bot{options.BotToken}/sendMessage";
                 var payload = new
                 {
-                    chat_id = _telegramOptions.ChatId,
-                    text = chunk,
-                    parse_mode = "HTML",
+                    chat_id = options.ChatId,
+                    text = chunk.Text,
+                    parse_mode = chunk.ParseMode,
                     disable_web_page_preview = false
                 };
 
-                var response = await _httpClient.PostAsJsonAsync(url, payload, cancellationToken);
+                using var response = await _httpClient.PostAsJsonAsync(url, payload, cancellationToken);
 
                 if (response.IsSuccessStatusCode)
                 {
+                    // A response with ok=false is still a failure even if HTTP was successful.
+                    var body = await response.Content.ReadAsStringAsync(cancellationToken);
+                    using var json = JsonDocument.Parse(body);
+                    if (!json.RootElement.TryGetProperty("ok", out var ok) || !ok.GetBoolean())
+                        return TelegramSendResult.Permanent("Telegram isteği kabul etmedi.");
+                    if (saveProgress != null) await saveProgress(i + 1);
                     continue;
                 }
 
                 var err = await response.Content.ReadAsStringAsync(cancellationToken);
                 var statusCode = (int)response.StatusCode;
 
-                _logger.LogError("Telegram bildirimi gönderilemedi: {StatusCode} - {Error}", statusCode, err);
+                // URLs and tokens never enter error messages or exception logs.
+                _logger.LogWarning("Telegram bildirimi gönderilemedi: HTTP {StatusCode}", statusCode);
 
                 if (statusCode == 429 || statusCode >= 500)
                 {
-                    return TelegramSendResult.Transient(err, statusCode);
+                    var result = TelegramSendResult.Transient($"Telegram geçici hatası (HTTP {statusCode}).", statusCode);
+                    var delay = RetryPolicy.GetDelay(1, response.Headers.RetryAfter);
+                    try
+                    {
+                        using var json = JsonDocument.Parse(err);
+                        if (json.RootElement.TryGetProperty("parameters", out var parameters) &&
+                            parameters.TryGetProperty("retry_after", out var seconds) && seconds.TryGetInt32(out var value))
+                            delay = TimeSpan.FromSeconds(Math.Max(0, value));
+                    }
+                    catch (JsonException) { }
+                    result.RetryAfterUtc = DateTime.UtcNow + delay;
+                    return result;
                 }
 
-                return TelegramSendResult.Permanent(err, statusCode);
+                return TelegramSendResult.Permanent($"Telegram isteği reddedildi (HTTP {statusCode}). Token ve sohbet ID'sini kontrol edin.", statusCode);
             }
 
             _logger.LogInformation("Telegram bildirimi başarıyla iletildi.");
             return TelegramSendResult.Ok();
         }
-        catch (HttpRequestException ex)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+        catch (OperationCanceledException)
         {
-            _logger.LogWarning(ex, "Telegram ağına erişirken geçici hata oluştu.");
-            return TelegramSendResult.Transient(ex.Message);
+            return TelegramSendResult.Transient("Telegram isteği zaman aşımına uğradı.");
         }
-        catch (Exception ex)
+        catch (HttpRequestException)
         {
-            _logger.LogError(ex, "Telegram mesajı gönderilirken istisna oluştu.");
-            return TelegramSendResult.Permanent(ex.Message);
+            _logger.LogWarning("Telegram ağına erişirken geçici hata oluştu.");
+            return TelegramSendResult.Transient("Telegram ağına erişilemedi.");
+        }
+        catch (JsonException)
+        {
+            return TelegramSendResult.Transient("Telegram yanıtı okunamadı.");
         }
     }
 
@@ -146,8 +176,8 @@ public class TelegramNotifier
             sb.AppendLine();
         }
 
-        var startStr = announcement.StartDate?.ToString("dd.MM.yyyy HH:mm") ?? "Belirtilmemiş";
-        var endStr = announcement.EndDate?.ToString("dd.MM.yyyy HH:mm") ?? "Belirtilmemiş";
+        var startStr = AppTime.Format(announcement.StartDate);
+        var endStr = AppTime.Format(announcement.EndDate);
 
         sb.AppendLine("📅 <b>Başvuru Tarihleri:</b>");
         sb.AppendLine($"   • <b>Başlangıç:</b> {startStr}");
@@ -165,39 +195,9 @@ public class TelegramNotifier
         }
 
         sb.AppendLine();
-        sb.AppendLine($"⏱ <i>Kontrol Zamanı: {DateTime.Now:dd.MM.yyyy HH:mm} (KariyerTakip Asistanı)</i>");
+        sb.AppendLine($"⏱ <i>Kontrol Zamanı: {AppTime.Format(DateTime.UtcNow)} (Türkiye saati, KariyerTakip Asistanı)</i>");
 
         return sb.ToString();
-    }
-
-    private static List<string> SplitMessage(string text, int maxChunkSize)
-    {
-        var list = new List<string>();
-        if (text.Length <= maxChunkSize)
-        {
-            list.Add(text);
-            return list;
-        }
-
-        var lines = text.Split(new[] { "\r\n", "\n" }, StringSplitOptions.None);
-        var current = new System.Text.StringBuilder();
-
-        foreach (var line in lines)
-        {
-            if (current.Length + line.Length + 1 > maxChunkSize)
-            {
-                list.Add(current.ToString());
-                current.Clear();
-            }
-            current.AppendLine(line);
-        }
-
-        if (current.Length > 0)
-        {
-            list.Add(current.ToString());
-        }
-
-        return list;
     }
 
     private static bool IsValidUrl(string? url)

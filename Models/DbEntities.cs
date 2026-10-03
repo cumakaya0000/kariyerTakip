@@ -17,7 +17,11 @@ public class AnnouncementRecord
     public DateTime LastCheckedAt { get; set; } = DateTime.UtcNow;
     public bool IsActive { get; set; } = true;
     public string LastScanStatus { get; set; } = "Success";
+    public ApplicationStatus ApplicationStatus { get; set; }
+    public string ApplicationNotes { get; set; } = "";
 }
+
+public enum ApplicationStatus { None, Planning, Applied, Skipped }
 
 public class PositionRecord
 {
@@ -56,6 +60,8 @@ public class OutboxNotificationRecord
     public string? ErrorMessage { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime? SentAt { get; set; }
+    public int NextChunkIndex { get; set; }
+    public DateTime? RetryAfterUtc { get; set; }
 }
 
 public enum ScanStatus

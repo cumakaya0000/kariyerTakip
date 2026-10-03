@@ -16,3 +16,11 @@ obj/
 *.log
 .DS_Store
 Thumbs.db
+
+# Local settings, credentials, profiles and release output
+appsettings.json
+profile.json
+profiles.json
+*.secret
+*.tmp
+artifacts/

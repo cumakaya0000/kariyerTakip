@@ -43,9 +43,9 @@ public class GuiLoggerProvider : ILoggerProvider
             }
 
             var shortCat = _categoryName.Contains('.') ? _categoryName.Substring(_categoryName.LastIndexOf('.') + 1) : _categoryName;
-            var formatted = $"[{DateTime.Now:HH:mm:ss}] [{shortCat}] {message}";
+            var formatted = $"[{KariyerTakip.Common.AppTime.ToDisplay(DateTime.UtcNow):HH:mm:ss}] [{shortCat}] {message}";
 
-            OnLogReceived?.Invoke(formatted, logLevel);
+            OnLogReceived?.Invoke(FileLoggerProvider.Redact(formatted), logLevel);
         }
     }
 }

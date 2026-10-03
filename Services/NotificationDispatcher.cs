@@ -5,6 +5,7 @@ namespace KariyerTakip.Services;
 
 public class NotificationDispatcher
 {
+    private static readonly SemaphoreSlim DispatchLock = new(1, 1);
     private readonly IAnnouncementRepository _repository;
     private readonly TelegramNotifier _notifier;
     private readonly ILogger<NotificationDispatcher> _logger;
@@ -21,6 +22,9 @@ public class NotificationDispatcher
 
     public async Task ProcessOutboxAsync(CancellationToken cancellationToken = default)
     {
+        await DispatchLock.WaitAsync(cancellationToken);
+        try
+        {
         var pending = await _repository.GetPendingNotificationsAsync(limit: 50);
         if (!pending.Any())
         {
@@ -35,7 +39,8 @@ public class NotificationDispatcher
             if (cancellationToken.IsCancellationRequested)
                 break;
 
-            var result = await _notifier.SendMessageAsync(item.MessagePayload, cancellationToken);
+            var result = await _notifier.SendMessageAsync(item.MessagePayload, cancellationToken, item.NextChunkIndex,
+                next => _repository.SaveNotificationProgressAsync(item.Id, next));
 
             if (result.Status == TelegramSendStatus.Success)
             {
@@ -47,11 +52,20 @@ public class NotificationDispatcher
             }
             else
             {
-                await _repository.MarkNotificationFailedAsync(item.Id, result.ErrorMessage ?? "Gönderim başarısız");
+                await _repository.MarkNotificationFailedAsync(item.Id, result.ErrorMessage ?? "Gönderim başarısız",
+                    result.RetryAfterUtc ?? DateTime.UtcNow.Add(RetryPolicy.GetDelay(item.RetryCount + 1)),
+                    result.Status == TelegramSendStatus.PermanentFailure);
+                if (result.StatusCode == 429)
+                {
+                    await _repository.DeferPendingNotificationsAsync(result.RetryAfterUtc ?? DateTime.UtcNow.AddMinutes(1));
+                    break;
+                }
             }
 
             // Small delay to prevent Telegram rate limit (e.g., 30 msg/sec limit)
             await Task.Delay(300, cancellationToken);
         }
+        }
+        finally { DispatchLock.Release(); }
     }
 }

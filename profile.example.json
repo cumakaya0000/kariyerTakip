@@ -1,0 +1,14 @@
+{
+  "Department": "Bilgisayar Programcılığı",
+  "EducationLevel": "Ön Lisans",
+  "GraduationStatus": "Mezun",
+  "KpssStatus": "Bilinmiyor",
+  "KpssScores": [],
+  "BirthDate": null,
+  "MilitaryStatus": "Bilinmiyor",
+  "Experience": { "Field": "", "TotalMonths": 0, "IsKnown": false, "IsDocumented": false },
+  "Certificates": [],
+  "DrivingLicenses": [],
+  "CityPreferences": [],
+  "WorkPreferences": []
+}

@@ -19,12 +19,17 @@ if %errorlevel% neq 0 (
     exit /b 1
 )
 
-echo [1/3] NuGet Bağımlılıkları Geri Yükleniyor...
+echo [1/4] NuGet Bağımlılıkları Geri Yükleniyor...
 dotnet restore KariyerTakip.slnx
+if errorlevel 1 (
+    echo [HATA] Bagimliliklar yuklenemedi. Internet baglantisini kontrol edin.
+    pause
+    exit /b 1
+)
 
 echo.
-echo [2/3] Proje Release Modunda Derleniyor...
-dotnet build KariyerTakip.slnx -c Release
+echo [2/4] Proje Release Modunda Derleniyor...
+dotnet build KariyerTakip.slnx -c Release --no-restore
 
 if %errorlevel% neq 0 (
     echo [HATA] Proje derlenirken hata oluştu!
@@ -33,11 +38,11 @@ if %errorlevel% neq 0 (
 )
 
 echo.
-echo [3/3] Birim Testleri Koşturuluyor...
+echo [3/4] Birim Testleri Koşturuluyor...
 dotnet test KariyerTakip.slnx --no-build -c Release
 
 if %errorlevel% neq 0 (
-    echo [HATA] Birim testleri başarısız oldu!
+    echo [HATA] Testler basarisiz oldugu icin uygulama baslatilmadi!
     pause
     exit /b 1
 )

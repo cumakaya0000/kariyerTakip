@@ -16,7 +16,11 @@ public interface IAnnouncementRepository
     Task<bool> QueueNotificationAsync(OutboxNotificationRecord notification);
     Task<List<OutboxNotificationRecord>> GetPendingNotificationsAsync(int limit = 50);
     Task MarkNotificationSentAsync(long id);
-    Task MarkNotificationFailedAsync(long id, string errorMessage);
+    Task MarkNotificationFailedAsync(long id, string errorMessage, DateTime? retryAfterUtc = null, bool permanent = false);
+    Task SaveNotificationProgressAsync(long id, int nextChunkIndex);
+    Task DeferPendingNotificationsAsync(DateTime retryAfterUtc);
+    Task SaveApplicationTrackingAsync(string guid, ApplicationStatus status, string notes);
+    Task MarkExpiredAnnouncementsAsync();
     Task MarkNotificationDisabledAsync(long id);
     Task<bool> HasNotificationBeenSentAsync(string deduplicationKey);
     Task<long> RecordScanStartAsync();

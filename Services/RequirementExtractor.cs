@@ -52,7 +52,7 @@ public class RequirementExtractor
     private static readonly Regex KpssYearRegex = new Regex(@"\b(20\d{2})\s*(?:yılı)?\s*(?:KPSS|Kamu\s*Personel)", RegexOptions.IgnoreCase | RegexOptions.Compiled);
     private static readonly Regex KpssYearAltRegex = new Regex(@"(?:KPSS|Kamu\s*Personel)[^\.\n]{0,25}\b(20\d{2})\b", RegexOptions.IgnoreCase | RegexOptions.Compiled);
     private static readonly Regex ExperienceRegex = new Regex(@"en\s*az\s*(?:(?:(\d+)\s*(?:\([^\)]+\))?)|(bir|iki|üç|dört|beş|altı|yedi|sekiz|dokuz|on))\s*(yıl|sene|ay)\s*(?:mesleki\s*)?(?:tecr[uü]be|deneyim|çalışmış|hizmet|çalışma)", RegexOptions.IgnoreCase | RegexOptions.Compiled);
-    private static readonly Regex AgeLimitRegex = new Regex(@"\b(\d{2})\s*yaşını\s*(?:doldurmamış|bitirmemiş|tamamlamamış)", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    private static readonly Regex AgeLimitRegex = new Regex(@"\b(\d{2})\s*(?:\([^)]*\))?\s*yaşını\s*(?:doldurmamış|bitirmemiş|tamamlamamış)", RegexOptions.IgnoreCase | RegexOptions.Compiled);
     private static readonly Regex DrivingLicenseRegex = new Regex(@"\b([A-Z][0-9]?)\s*sınıfı\s*(?:sürücü|ehliyet)", RegexOptions.IgnoreCase | RegexOptions.Compiled);
     private static readonly Regex NoKpssRegex = new Regex(@"(?:KPSS\s*şartı\s*aranmaz|KPSS\s*puanı\s*aranmamaktadır|sınavsız\s*alım)", RegexOptions.IgnoreCase | RegexOptions.Compiled);
 

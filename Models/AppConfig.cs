@@ -7,6 +7,13 @@ public class AppConfig
     public string DatabasePath { get; set; } = "kariyertakip.db";
     public TelegramOptions Telegram { get; set; } = new();
     public ScanOptions Scan { get; set; } = new();
+    public DesktopOptions Desktop { get; set; } = new();
+}
+
+public class DesktopOptions
+{
+    public bool MinimizeToTray { get; set; }
+    public bool StartWithWindows { get; set; }
 }
 
 public class TelegramOptions
@@ -21,4 +28,6 @@ public class ScanOptions
     public string SearchKeyword { get; set; } = string.Empty;
     public bool IncludeNeedsReview { get; set; } = true;
     public int RequestDelayMs { get; set; } = 300;
+    public int MaxConcurrency { get; set; } = 2;
+    public int ReminderDays { get; set; } = 3; // Zero disables reminders
 }

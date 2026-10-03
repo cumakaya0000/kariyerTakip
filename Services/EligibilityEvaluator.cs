@@ -1,5 +1,6 @@
 using System.Globalization;
 using KariyerTakip.Models;
+using KariyerTakip.Common;
 
 namespace KariyerTakip.Services;
 
@@ -18,7 +19,7 @@ public class EligibilityEvaluator
         AltIlanResponse altIlan,
         string generalAnnouncementText,
         ProfileOptions profile,
-        string positionKey = "")
+        string positionKey = "", DateTime? referenceDate = null)
     {
         var posEval = new PositionEvaluation
         {
@@ -76,7 +77,8 @@ public class EligibilityEvaluator
         // -------------------------------------------------------------
         // 5. Age Limit Evaluation
         // -------------------------------------------------------------
-        EvaluateAgeLimit(posReq, genReq, profile, posEval);
+        EvaluateAgeLimit(posReq, genReq, profile, posEval, referenceDate);
+        EvaluateMilitary(posReq, genReq, profile, posEval);
 
         // -------------------------------------------------------------
         // 6. Certificates Evaluation
@@ -87,6 +89,7 @@ public class EligibilityEvaluator
         // 7. City Preferences Evaluation
         // -------------------------------------------------------------
         EvaluateCityPreferences(altIlan, profile, posEval);
+        EvaluateWorkPreferences(positionSpecificText + "\n" + generalAnnouncementText, profile, posEval);
 
         // -------------------------------------------------------------
         // Overall Decision Aggregation
@@ -389,15 +392,23 @@ public class EligibilityEvaluator
         }
     }
 
-    private void EvaluateAgeLimit(ExtractedRequirements posReq, ExtractedRequirements genReq, ProfileOptions profile, PositionEvaluation posEval)
+    private void EvaluateAgeLimit(ExtractedRequirements posReq, ExtractedRequirements genReq, ProfileOptions profile, PositionEvaluation posEval, DateTime? referenceDate)
     {
         var maxAgeLimit = posReq.MaxAgeLimit?.Value ?? genReq.MaxAgeLimit?.Value;
         var sourceText = posReq.MaxAgeLimit?.SourceText ?? genReq.MaxAgeLimit?.SourceText ?? "";
 
+        if (maxAgeLimit.HasValue && !profile.BirthDate.HasValue)
+        {
+            posEval.Conditions.Add(new ConditionEvaluation { CriterionName = "Yaş Sınırı", Status = ConditionStatus.Unknown,
+                RequiredValue = $"{maxAgeLimit} yaş", UserValue = "Doğum tarihi belirtilmemiş",
+                Explanation = "Yaş şartı var; doğum tarihi bilinmediği için kontrol edilmelidir.", SourceText = sourceText });
+        }
+
         if (maxAgeLimit.HasValue && profile.BirthDate.HasValue)
         {
-            var userAge = DateTime.Today.Year - profile.BirthDate.Value.Year;
-            if (profile.BirthDate.Value.Date > DateTime.Today.AddYears(-userAge)) userAge--;
+            var today = AppTime.ToDisplay(referenceDate ?? DateTime.UtcNow).Date;
+            var userAge = today.Year - profile.BirthDate.Value.Year;
+            if (profile.BirthDate.Value.Date > today.AddYears(-userAge)) userAge--;
 
             if (userAge < maxAgeLimit.Value)
             {
@@ -426,13 +437,29 @@ public class EligibilityEvaluator
         }
     }
 
+    private static void EvaluateMilitary(ExtractedRequirements posReq, ExtractedRequirements genReq, ProfileOptions profile, PositionEvaluation evaluation)
+    {
+        var condition = posReq.MilitaryCondition ?? genReq.MilitaryCondition;
+        if (condition == null) return;
+        var status = profile.MilitaryStatus switch
+        {
+            "Muaf / Yapıldı" => ConditionStatus.Satisfied,
+            "Yapılmadı" => ConditionStatus.Unsatisfied,
+            _ => ConditionStatus.Unknown
+        };
+        evaluation.Conditions.Add(new ConditionEvaluation { CriterionName = "Askerlik", Status = status,
+            RequiredValue = condition.Value, UserValue = profile.MilitaryStatus, SourceText = condition.SourceText,
+            Explanation = status == ConditionStatus.Satisfied ? "Askerlik durumunuz uygun." : "Askerlik şartı ve durumunuz kontrol edilmelidir." });
+    }
+
     private void EvaluateCertificates(ExtractedRequirements posReq, ProfileOptions profile, PositionEvaluation posEval)
     {
         if (posReq.RequiredCertificates.Any())
         {
             foreach (var cert in posReq.RequiredCertificates)
             {
-                var userHasCert = profile.Certificates.Any(c => c.Contains(cert.Value, StringComparison.OrdinalIgnoreCase) || cert.Value.Contains(c, StringComparison.OrdinalIgnoreCase));
+                var userHasCert = profile.Certificates.Any(c => !string.IsNullOrWhiteSpace(c) &&
+                    cert.Value.Contains(c.Trim(), StringComparison.OrdinalIgnoreCase));
                 if (userHasCert)
                 {
                     posEval.Conditions.Add(new ConditionEvaluation
@@ -459,6 +486,20 @@ public class EligibilityEvaluator
                 }
             }
         }
+    }
+
+    private static void EvaluateWorkPreferences(string text, ProfileOptions profile, PositionEvaluation evaluation)
+    {
+        if (profile.WorkPreferences.Count == 0) return;
+        var types = new[] { "Sözleşmeli", "Kadrolu", "İşçi", "Geçici" }.Where(type => text.Contains(type, StringComparison.OrdinalIgnoreCase)).ToList();
+        if (types.Count == 0) return;
+        var matches = types.Any(type => profile.WorkPreferences.Contains(type, StringComparer.OrdinalIgnoreCase));
+        evaluation.Conditions.Add(new ConditionEvaluation
+        {
+            CriterionName = "Çalışma Tercihi", Status = matches ? ConditionStatus.Satisfied : ConditionStatus.Unsatisfied,
+            RequiredValue = string.Join(", ", types), UserValue = string.Join(", ", profile.WorkPreferences),
+            Explanation = matches ? "İlanın çalışma türü tercihlerinizle eşleşiyor." : "İlanın çalışma türü tercihlerinizle eşleşmiyor."
+        });
     }
 
     private void EvaluateCityPreferences(AltIlanResponse altIlan, ProfileOptions profile, PositionEvaluation posEval)

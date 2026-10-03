@@ -156,8 +156,18 @@ public class DataFlowTests
                     form.Size = new System.Drawing.Size(1400, 900);
                     form.PerformLayout();
                     using var bitmap = new System.Drawing.Bitmap(form.Width, form.Height);
-                    form.DrawToBitmap(bitmap, form.ClientRectangle);
+                    form.DrawToBitmap(bitmap, new System.Drawing.Rectangle(0, 0, form.Width, form.Height));
                     bitmap.Save(previewPath);
+                    var tabs = Field<TabControl>(form, "_tabControl");
+                    foreach (var page in new[] { (Index: 1, Name: "profiller.png"), (Index: 2, Name: "ayarlar.png") })
+                    {
+                        tabs.SelectedIndex = page.Index;
+                        form.PerformLayout();
+                        using var pageBitmap = new System.Drawing.Bitmap(form.Width, form.Height);
+                        form.DrawToBitmap(pageBitmap, new System.Drawing.Rectangle(0, 0, form.Width, form.Height));
+                        pageBitmap.Save(Path.Combine(Path.GetDirectoryName(previewPath)!, page.Name));
+                    }
+                    tabs.SelectedIndex = 0;
                 }
                 Field<TextBox>(form, "_txtSearch").Text = "İkinci";
                 Assert.Single(grid.Rows.Cast<DataGridViewRow>());

@@ -3,6 +3,7 @@ using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using KariyerTakip.Models;
+using KariyerTakip.Common;
 
 namespace KariyerTakip.Services;
 
@@ -35,6 +36,15 @@ public class CareerGateClient
     private readonly HttpClient _httpClient;
     private readonly AppConfig _config;
     private readonly ILogger<CareerGateClient> _logger;
+    private readonly SemaphoreSlim _requestGate = new(1, 1);
+    private DateTime _nextRequestUtc;
+    private static readonly JsonSerializerOptions JsonOptions = CreateJsonOptions();
+    private static JsonSerializerOptions CreateJsonOptions()
+    {
+        var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+        options.Converters.Add(new PortalDateConverter());
+        return options;
+    }
 
     public CareerGateClient(HttpClient httpClient, IOptions<AppConfig> config, ILogger<CareerGateClient> logger)
     {
@@ -69,7 +79,7 @@ public class CareerGateClient
             {
                 var list = resp?.SearchIlan ?? new List<SearchIlanItem>();
                 // Only return active postings
-                var now = DateTime.Now;
+                var now = DateTime.UtcNow;
                 return list.Where(x => !x.BitTarih.HasValue || x.BitTarih.Value >= now).ToList();
             },
             cancellationToken);
@@ -106,27 +116,37 @@ public class CareerGateClient
         {
             try
             {
-                var response = await _httpClient.PostAsJsonAsync(endpoint, payload, cancellationToken);
+                await _requestGate.WaitAsync(cancellationToken);
+                try
+                {
+                    var wait = _nextRequestUtc - DateTime.UtcNow;
+                    if (wait > TimeSpan.Zero) await Task.Delay(wait, cancellationToken);
+                    _nextRequestUtc = DateTime.UtcNow.AddMilliseconds(Math.Max(0, _config.Scan.RequestDelayMs));
+                }
+                finally { _requestGate.Release(); }
+                using var response = await _httpClient.PostAsJsonAsync(endpoint, payload, cancellationToken);
 
                 if (response.StatusCode == System.Net.HttpStatusCode.NoContent)
                 {
                     return ApiResult<TOut>.Empty();
                 }
 
-                if ((int)response.StatusCode == 429 || (int)response.StatusCode == 502 || (int)response.StatusCode == 503)
+                if ((int)response.StatusCode == 429 || (int)response.StatusCode >= 500)
                 {
                     _logger.LogWarning("API geçici hata döndürdü ({StatusCode}). Deneme: {Attempt}/{MaxRetries}", response.StatusCode, attempt, maxRetries);
                     if (attempt < maxRetries)
                     {
-                        await Task.Delay(attempt * 1000, cancellationToken);
+                        await Task.Delay(RetryPolicy.GetDelay(attempt, response.Headers.RetryAfter), cancellationToken);
                         continue;
                     }
                     return ApiResult<TOut>.Fail(ApiCallStatus.HttpError, $"HTTP {(int)response.StatusCode}: {response.ReasonPhrase}", (int)response.StatusCode);
                 }
 
-                response.EnsureSuccessStatusCode();
+                if (!response.IsSuccessStatusCode)
+                    return ApiResult<TOut>.Fail(ApiCallStatus.HttpError, $"HTTP {(int)response.StatusCode}", (int)response.StatusCode);
 
-                var rawObj = await response.Content.ReadFromJsonAsync<TIn>(cancellationToken: cancellationToken);
+                var rawObj = await response.Content.ReadFromJsonAsync<TIn>(JsonOptions, cancellationToken);
+                if (rawObj == null) return ApiResult<TOut>.Empty();
                 var resultData = transform(rawObj);
 
                 if (resultData == null)
@@ -139,7 +159,7 @@ public class CareerGateClient
                 _logger.LogWarning(ex, "Ağ hatası oluştu (Endpoint: {Endpoint}, Deneme: {Attempt}/{Max})", endpoint, attempt, maxRetries);
                 if (attempt < maxRetries)
                 {
-                    await Task.Delay(attempt * 1000, cancellationToken);
+                    await Task.Delay(RetryPolicy.GetDelay(attempt), cancellationToken);
                     continue;
                 }
                 return ApiResult<TOut>.Fail(ApiCallStatus.NetworkError, ex.Message);
@@ -148,6 +168,12 @@ public class CareerGateClient
             {
                 _logger.LogError(ex, "JSON ayrıştırma hatası (Endpoint: {Endpoint})", endpoint);
                 return ApiResult<TOut>.Fail(ApiCallStatus.ParseError, ex.Message);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+            catch (OperationCanceledException)
+            {
+                if (attempt < maxRetries) { await Task.Delay(RetryPolicy.GetDelay(attempt), cancellationToken); continue; }
+                return ApiResult<TOut>.Fail(ApiCallStatus.NetworkError, "API isteği zaman aşımına uğradı.");
             }
             catch (Exception ex)
             {
