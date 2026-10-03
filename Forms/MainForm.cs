@@ -74,6 +74,10 @@ public partial class MainForm : Form
     private CheckBox _chkTgEnabled = null!;
     private Button _btnTgTest = null!;
 
+    // Theme
+    private Button _btnThemeToggle = null!;
+    private bool _isDarkMode = false;
+
     // Data Cache
     private List<AnnouncementDisplayItem> _cachedItems = new();
     private AnnouncementDisplayItem? _selectedItem = null;
@@ -178,10 +182,26 @@ public partial class MainForm : Form
             Location = new Point(topPanel.Width - 460, 26)
         };
 
+        _btnThemeToggle = new Button
+        {
+            Text = "🌙",
+            Font = new Font("Segoe UI", 14, FontStyle.Regular),
+            ForeColor = Color.Gold,
+            BackColor = Color.FromArgb(35, 60, 90),
+            FlatStyle = FlatStyle.Flat,
+            Size = new Size(42, 42),
+            Cursor = Cursors.Hand,
+            Anchor = AnchorStyles.Top | AnchorStyles.Right,
+            Location = new Point(topPanel.Width - 285, 15)
+        };
+        _btnThemeToggle.FlatAppearance.BorderSize = 0;
+        _btnThemeToggle.Click += (s, e) => ToggleTheme();
+
         topPanel.Controls.Add(lblAppTitle);
         topPanel.Controls.Add(_lblLastScanTime);
         topPanel.Controls.Add(_btnScanNow);
         topPanel.Controls.Add(_btnCancelScan);
+        topPanel.Controls.Add(_btnThemeToggle);
         topPanel.Controls.Add(_lblStatus);
         Controls.Add(topPanel);
 
@@ -278,6 +298,7 @@ public partial class MainForm : Form
         _gridAnnouncements.Columns["EndDate"]!.FillWeight = 25;
 
         _gridAnnouncements.SelectionChanged += GridAnnouncements_SelectionChanged;
+        _gridAnnouncements.CellDoubleClick += GridAnnouncements_CellDoubleClick;
 
         leftPanel.Controls.Add(_gridAnnouncements);
         leftPanel.Controls.Add(filterPanel);
@@ -905,6 +926,205 @@ public partial class MainForm : Form
         catch (Exception ex)
         {
             MessageBox.Show($"Bağlantı açılamadı: {ex.Message}", "Hata", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+    }
+
+    private void GridAnnouncements_CellDoubleClick(object? sender, DataGridViewCellEventArgs e)
+    {
+        if (e.RowIndex < 0) return;
+
+        var item = _gridAnnouncements.Rows[e.RowIndex].Tag as AnnouncementDisplayItem;
+        if (item == null) return;
+
+        var detailUrl = item.Record.DetailUrl;
+        if (!string.IsNullOrWhiteSpace(detailUrl))
+        {
+            OpenUrl(detailUrl);
+        }
+        else
+        {
+            // Fallback: construct the URL from the GUID
+            var fallbackUrl = $"https://kariyerkapisi.gov.tr/IlanDetay?i={item.Record.Guid}";
+            OpenUrl(fallbackUrl);
+        }
+    }
+
+    private void ToggleTheme()
+    {
+        _isDarkMode = !_isDarkMode;
+        _btnThemeToggle.Text = _isDarkMode ? "☀️" : "🌙";
+        ApplyTheme();
+    }
+
+    private void ApplyTheme()
+    {
+        // ── Color Palettes ──
+        Color formBg, panelBg, cardBg, textPrimary, textSecondary, gridBg, gridAltRow, gridHeaderBg, gridHeaderFg, gridLineBorder;
+        Color headerBg, headerSubFg;
+        Color detailBg;
+        Color logBg, logFg;
+        Color tabBg;
+
+        if (_isDarkMode)
+        {
+            formBg         = Color.FromArgb(30, 30, 30);
+            panelBg        = Color.FromArgb(40, 40, 40);
+            cardBg         = Color.FromArgb(45, 45, 48);
+            textPrimary    = Color.FromArgb(230, 230, 230);
+            textSecondary  = Color.FromArgb(170, 170, 170);
+            gridBg         = Color.FromArgb(38, 38, 42);
+            gridAltRow     = Color.FromArgb(48, 48, 55);
+            gridHeaderBg   = Color.FromArgb(55, 55, 60);
+            gridHeaderFg   = Color.FromArgb(220, 220, 220);
+            gridLineBorder = Color.FromArgb(65, 65, 70);
+            headerBg       = Color.FromArgb(18, 18, 22);
+            headerSubFg    = Color.FromArgb(140, 160, 180);
+            detailBg       = Color.FromArgb(38, 40, 45);
+            logBg          = Color.FromArgb(18, 20, 25);
+            logFg          = Color.FromArgb(200, 210, 220);
+            tabBg          = Color.FromArgb(40, 40, 40);
+        }
+        else
+        {
+            formBg         = Color.FromArgb(244, 246, 249);
+            panelBg        = Color.White;
+            cardBg         = Color.White;
+            textPrimary    = Color.FromArgb(30, 30, 30);
+            textSecondary  = Color.FromArgb(100, 110, 120);
+            gridBg         = Color.White;
+            gridAltRow     = Color.FromArgb(248, 250, 252);
+            gridHeaderBg   = Color.FromArgb(240, 242, 245);
+            gridHeaderFg   = Color.FromArgb(30, 30, 30);
+            gridLineBorder = Color.FromArgb(220, 225, 230);
+            headerBg       = Color.FromArgb(15, 37, 65);
+            headerSubFg    = Color.FromArgb(180, 200, 220);
+            detailBg       = Color.FromArgb(250, 252, 255);
+            logBg          = Color.FromArgb(20, 24, 30);
+            logFg          = Color.FromArgb(220, 230, 240);
+            tabBg          = Color.White;
+        }
+
+        // ── Form ──
+        BackColor = formBg;
+
+        // ── Header ──
+        var topPanel = Controls.OfType<Panel>().FirstOrDefault(p => p.Dock == DockStyle.Top);
+        if (topPanel != null)
+        {
+            topPanel.BackColor = headerBg;
+            foreach (Control c in topPanel.Controls)
+            {
+                if (c is Label lbl)
+                {
+                    if (lbl == _lblLastScanTime)
+                        lbl.ForeColor = headerSubFg;
+                    else if (lbl != _lblStatus)
+                        lbl.ForeColor = Color.White;
+                }
+            }
+            _btnThemeToggle.BackColor = _isDarkMode ? Color.FromArgb(50, 55, 60) : Color.FromArgb(35, 60, 90);
+        }
+
+        // ── Grid ──
+        _gridAnnouncements.BackgroundColor = gridBg;
+        _gridAnnouncements.DefaultCellStyle.BackColor = gridBg;
+        _gridAnnouncements.DefaultCellStyle.ForeColor = textPrimary;
+        _gridAnnouncements.DefaultCellStyle.SelectionBackColor = _isDarkMode ? Color.FromArgb(60, 80, 120) : Color.FromArgb(200, 220, 250);
+        _gridAnnouncements.DefaultCellStyle.SelectionForeColor = textPrimary;
+        _gridAnnouncements.AlternatingRowsDefaultCellStyle.BackColor = gridAltRow;
+        _gridAnnouncements.ColumnHeadersDefaultCellStyle.BackColor = gridHeaderBg;
+        _gridAnnouncements.ColumnHeadersDefaultCellStyle.ForeColor = gridHeaderFg;
+        _gridAnnouncements.GridColor = gridLineBorder;
+        _gridAnnouncements.EnableHeadersVisualStyles = false;
+
+        foreach (DataGridViewRow row in _gridAnnouncements.Rows)
+        {
+            var it = row.Tag as AnnouncementDisplayItem;
+            if (it == null) continue;
+            if (it.Status == EligibilityStatus.Eligible)
+                row.DefaultCellStyle.BackColor = _isDarkMode ? Color.FromArgb(30, 60, 30) : Color.FromArgb(235, 255, 235);
+            else if (it.Status == EligibilityStatus.NeedsReview)
+                row.DefaultCellStyle.BackColor = _isDarkMode ? Color.FromArgb(60, 55, 25) : Color.FromArgb(255, 250, 230);
+            else
+                row.DefaultCellStyle.BackColor = gridBg;
+        }
+
+        // ── Detail Panel ──
+        _lblDetailInstitution.ForeColor = textPrimary;
+        _lblDetailTitle.ForeColor = textSecondary;
+        _lblDetailDates.ForeColor = textSecondary;
+        _rtbDetailContent.BackColor = cardBg;
+        _rtbDetailContent.ForeColor = textPrimary;
+
+        // ── Tabs & Tab Pages ──
+        foreach (TabPage tp in _tabControl.TabPages)
+        {
+            tp.BackColor = tabBg;
+            ApplyThemeToChildren(tp, panelBg, cardBg, textPrimary, textSecondary);
+        }
+
+        // ── Log ──
+        _rtbLog.BackColor = logBg;
+        _rtbLog.ForeColor = logFg;
+
+        // ── Detail area parent panels ──
+        var detailParent = _rtbDetailContent.Parent;
+        while (detailParent != null && detailParent != _tabControl)
+        {
+            if (detailParent is Panel dp)
+                dp.BackColor = detailBg;
+            detailParent = detailParent.Parent;
+        }
+
+        Invalidate(true);
+    }
+
+    private void ApplyThemeToChildren(Control parent, Color panelBg, Color cardBg, Color textPrimary, Color textSecondary)
+    {
+        foreach (Control c in parent.Controls)
+        {
+            switch (c)
+            {
+                case Panel p:
+                    p.BackColor = panelBg;
+                    ApplyThemeToChildren(p, panelBg, cardBg, textPrimary, textSecondary);
+                    break;
+                case SplitContainer sc:
+                    sc.BackColor = _isDarkMode ? Color.FromArgb(50, 50, 55) : Color.FromArgb(230, 235, 240);
+                    ApplyThemeToChildren(sc.Panel1, panelBg, cardBg, textPrimary, textSecondary);
+                    ApplyThemeToChildren(sc.Panel2, panelBg, cardBg, textPrimary, textSecondary);
+                    break;
+                case Label lbl when lbl != _lblDetailStatusBadge && lbl != _lblStatus:
+                    lbl.ForeColor = textPrimary;
+                    break;
+                case TextBox txt:
+                    txt.BackColor = cardBg;
+                    txt.ForeColor = textPrimary;
+                    break;
+                case ComboBox cmb:
+                    cmb.BackColor = cardBg;
+                    cmb.ForeColor = textPrimary;
+                    break;
+                case NumericUpDown nud:
+                    nud.BackColor = cardBg;
+                    nud.ForeColor = textPrimary;
+                    break;
+                case CheckBox chk:
+                    chk.ForeColor = textPrimary;
+                    break;
+                case DateTimePicker dtp:
+                    dtp.CalendarMonthBackground = cardBg;
+                    dtp.CalendarForeColor = textPrimary;
+                    break;
+                case RichTextBox rtb when rtb != _rtbLog:
+                    rtb.BackColor = cardBg;
+                    rtb.ForeColor = textPrimary;
+                    break;
+                default:
+                    if (c.HasChildren)
+                        ApplyThemeToChildren(c, panelBg, cardBg, textPrimary, textSecondary);
+                    break;
+            }
         }
     }
 
