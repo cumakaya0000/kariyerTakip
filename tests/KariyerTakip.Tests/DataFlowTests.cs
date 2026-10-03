@@ -293,7 +293,7 @@ public class DataFlowTests
                 new CareerGateClient(_http, Config, NullLogger<CareerGateClient>.Instance), Repository,
                 new EligibilityEvaluator(new RequirementExtractor(reader), reader), new ChangeDetector(),
                 Notifier, new NotificationDispatcher(Repository, Notifier, NullLogger<NotificationDispatcher>.Instance),
-                Config, Profile, NullLogger<ScanCoordinator>.Instance);
+                Config, Profile, NullLogger<ScanCoordinator>.Instance, new DeadlineReminderService(Repository, Notifier, Config));
         }
 
         public async Task SeedAsync()

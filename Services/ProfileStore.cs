@@ -27,10 +27,12 @@ public sealed class ProfileStore
     }
     public ProfileCatalog Load(ProfileOptions fallback)
     {
-        var catalog = File.Exists(_profilesPath)
-            ? JsonSerializer.Deserialize<ProfileCatalog>(File.ReadAllText(_profilesPath)) ?? new() : new ProfileCatalog();
+        var catalog = JsonRecovery.Read(_profilesPath, () => new ProfileCatalog(),
+            c => c.Profiles != null && c.Profiles.All(p => p != null && ConfigurationStore.ProfileIsValid(p.Profile)));
+        catalog.Profiles = catalog.Profiles.Where(p => !string.IsNullOrWhiteSpace(p.Name))
+            .DistinctBy(p => p.Name, StringComparer.OrdinalIgnoreCase).ToList();
         if (catalog.Profiles.Count == 0) catalog.Profiles.Add(new NamedProfile { Profile = fallback });
-        if (!catalog.Profiles.Any(p => p.Name == catalog.ActiveName)) catalog.ActiveName = catalog.Profiles[0].Name;
+        catalog.ActiveName = (catalog.Profiles.FirstOrDefault(p => p.Name.Equals(catalog.ActiveName, StringComparison.OrdinalIgnoreCase)) ?? catalog.Profiles[0]).Name;
         return catalog;
     }
     public async Task SaveAsync(ProfileCatalog catalog)
@@ -38,7 +40,7 @@ public sealed class ProfileStore
         if (catalog.Profiles.Count == 0 || catalog.Profiles.Any(p => string.IsNullOrWhiteSpace(p.Name)) ||
             catalog.Profiles.Select(p => p.Name).Distinct(StringComparer.OrdinalIgnoreCase).Count() != catalog.Profiles.Count)
             throw new InvalidOperationException("Profil adları boş olmayan, benzersiz adlar olmalıdır.");
-        var active = catalog.Profiles.Single(p => p.Name == catalog.ActiveName).Profile;
+        var active = catalog.Profiles.First(p => p.Name.Equals(catalog.ActiveName, StringComparison.OrdinalIgnoreCase)).Profile;
         var options = new JsonSerializerOptions { WriteIndented = true };
         // The catalog is the authoritative source; profile.json stays compatible with older versions.
         await AtomicFile.WriteAsync(_profilesPath, JsonSerializer.Serialize(catalog, options));

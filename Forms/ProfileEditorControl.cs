@@ -37,7 +37,7 @@ public sealed class ProfileEditorControl : UserControl
     {
         _store = store;
         _catalog = store.Load(profile);
-        _active = _catalog.Profiles.Single(p => p.Name == _catalog.ActiveName);
+        _active = _catalog.Profiles.First(p => p.Name == _catalog.ActiveName);
         Dock = DockStyle.Fill;
         AutoScroll = true;
         var layout = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, ColumnCount = 2, Padding = new Padding(24) };
@@ -80,7 +80,7 @@ public sealed class ProfileEditorControl : UserControl
             try
             {
                 _active.Profile = ReadProfile();
-                _active = _catalog.Profiles.Single(p => p.Name == name);
+                _active = _catalog.Profiles.First(p => p.Name == name);
                 _catalog.ActiveName = name;
                 PopulateFields();
                 ActiveProfileChanged?.Invoke(_active.Profile);

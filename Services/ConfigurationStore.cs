@@ -38,6 +38,24 @@ public sealed class ConfigurationStore
         var settingsPath = Path.Combine(baseDirectory, "appsettings.json");
         var profilePath = Path.Combine(baseDirectory, "profile.json");
         Directory.CreateDirectory(baseDirectory);
+        // Validate before the configuration provider sees the files. Keep the original bytes in a backup.
+        JsonRecovery.Read(settingsPath, () => new JsonObject { ["KariyerTakip"] = JsonSerializer.SerializeToNode(new AppConfig()) }, root =>
+        {
+            if (root["KariyerTakip"] == null) return true;
+            var config = root["KariyerTakip"]!.Deserialize<AppConfig>();
+            return config != null && config.Scan != null && config.Telegram != null && config.Desktop != null;
+        });
+        JsonRecovery.Read(profilePath, () => JsonSerializer.SerializeToNode(new ProfileOptions())!.AsObject(), root =>
+        {
+            if (root["Experience"] is JsonObject experience && experience["Years"] != null)
+            {
+                var years = experience["Years"]!.GetValue<double>();
+                if (!double.IsFinite(years) || years < 0 || years > 100) return false;
+            }
+            if (root["OtherConditions"] != null && root["OtherConditions"] is not JsonObject) return false;
+            if (root["OtherConditions"]?["MilitaryStatus"] != null) _ = root["OtherConditions"]!["MilitaryStatus"]!.GetValue<string>();
+            return ProfileIsValid(root.Deserialize<ProfileOptions>());
+        });
         foreach (var name in new[] { "appsettings", "profile" })
         {
             var destination = Path.Combine(baseDirectory, name + ".json");
@@ -69,4 +87,8 @@ public sealed class ConfigurationStore
             await AtomicFile.WriteAsync(profilePath, root.ToJsonString(JsonOptions));
         }
     }
+
+    public static bool ProfileIsValid(ProfileOptions? profile) => profile != null && profile.Experience != null &&
+        profile.KpssScores != null && profile.KpssScores.All(s => s != null) && profile.CityPreferences != null &&
+        profile.DrivingLicenses != null && profile.Certificates != null && profile.WorkPreferences != null;
 }

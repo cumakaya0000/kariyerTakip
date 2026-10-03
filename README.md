@@ -2,6 +2,8 @@
 
 Windows için Kariyer Kapısı ilanlarını tarayan, kadro şartlarını profille karşılaştıran ve başvuruları takip eden masaüstü uygulaması. C# / .NET 10, WinForms ve SQLite kullanır.
 
+Bu proje resmî değildir; kişisel kullanım için dokümante edilmemiş kamuya açık API'yi düşük istek hızıyla okur. İstemci kendisini `KariyerTakip/1.0` olarak tanıtır. Portal izinleri ve kullanım koşullarına uyun; erişim kısıtlarını aşmaya çalışmayın.
+
 ## Özellikler
 
 - İlan ve kadro taraması; uygun / kontrol gerekli / uygun değil sonuçları ve ayrı gerekçe satırları.
@@ -22,15 +24,29 @@ Görseller sentetik test verileriyle oluşturulmuştur; kişisel ayar veya gerç
 ![Çoklu profil ve KPSS düzenleyicisi](docs/images/profiller.png)
 ![Telegram ve sistem ayarları](docs/images/ayarlar.png)
 
-## Çalıştırma
+## Hızlı Başlangıç ve Çalıştırma
 
-### Hazır Windows paketi
+### 1. Hazır Doğrudan Çalıştırılabilir EXE (Önerilen)
 
-[GitHub Releases](https://github.com/cumakaya0000/kariyerTakip/releases) üzerinde bir sürüm yayınlandığında `KariyerTakip-win-x64.zip` dosyasını indirip açın ve `KariyerTakip.exe` dosyasını çalıştırın. Paket kendi .NET çalışma zamanını içerir; kullanıcıda SDK kurulumu gerekmez. Henüz sürüm etiketi oluşturulmamışsa aşağıdaki kaynak kod yöntemini kullanın.
+Kurulum yapmaya veya .NET SDK yüklemeye gerek kalmadan programı doğrudan çalıştırmak için:
+* Depodaki [`dist/KariyerTakip.exe`](dist/KariyerTakip.exe) dosyasını indirin ve çift tıklayarak doğrudan çalıştırın.
+* Alternatif olarak tüm dosyaları içeren [`dist/KariyerTakip-win-x64.zip`](dist/KariyerTakip-win-x64.zip) arşivini indirip bir klasöre çıkartabilir ve içindeki `KariyerTakip.exe` dosyasını kullanabilirsiniz.
 
-### Kaynak koddan
+> [!NOTE]
+> **Windows Uygulama Denetimi (Hata 4551) Uyarısı:**
+> Standart Inno Setup kurulum sihirbazları `%TEMP%` klasörüne geçici `.tmp` dosyası açıp çalıştırdığı için Windows 11 Akıllı Uygulama Denetimi (Smart App Control) tarafından engellenebilir (Hata 4551). Yukarıdaki **doğrudan taşınabilir (portable) `KariyerTakip.exe`** dosyasını kullandığınızda hiçbir geçici klasör engeline takılmadan uygulama doğrudan açılır.
 
-Windows 10/11 ve .NET 10 SDK gerekir. `Kurulum.bat` bağımlılıkları yükler, çözümü derler, testleri çalıştırır ve uygulamayı açar. Herhangi bir adım başarısız olursa sonraki adımlara geçmez; test başarısızlığında uygulama açılmaz.
+### 2. Kurulum Sihirbazı ile Kurulum
+
+`KariyerTakip-Kurulum.exe` KT simgeli Türkçe kurulum sihirbazıdır. Windows 10 (1809 veya sonrası) ve Windows 11 için x86, x64 veya ARM64 sürümünü otomatik seçer; .NET çalışma zamanı pakete dahildir.
+
+Sihirbaz programı tanıtır, kurulum klasörünü seçtirir ve masaüstü kısayolu / Windows ile başlatma kutularını sunar. Varsayılan konum `%LOCALAPPDATA%\Programs\KariyerTakip` olduğu için yönetici hesabı gerekmez.
+
+Denetim Masası > Programlar ve Özellikler veya Windows Ayarları > Uygulamalar bölümündeki **KariyerTakip** kaydıyla kaldırabilirsiniz.
+
+### 3. Kaynak Koddan Derleme ve Çalıştırma
+
+Windows 10/11 ve .NET 10 SDK gerekir. Proje kök dizinindeki [`Kurulum.bat`](Kurulum.bat) dosyasını çalıştırabilir veya terminalden şu komutları uygulayabilirsiniz:
 
 ```powershell
 git clone https://github.com/cumakaya0000/kariyerTakip.git
@@ -66,6 +82,10 @@ Varsayılan veri klasörü `%LOCALAPPDATA%\KariyerTakip` dizinidir. Exe yanında
 
 Eski profillerde `Experience.Years` aya çevrilir; `OtherConditions.MilitaryStatus` üst seviyeye taşınır. `MaxAge` bir kişinin doğum tarihi yerine kullanılamayacağı için doğum tarihi uydurulmaz. Eski SQLite şeması kayıtlar korunarak otomatik güncellenir; veritabanını silmeyin.
 
+Bozuk ayar/profil JSON'u `.bak` dosyasına taşınır ve varsayılanla devam edilir. Var olan yedekler üzerine yazılmaz. Açılış uyarıları arayüzde gösterilir ve günlükte saklanır; ekran olmadan çalışırken MessageBox açılmaz. Yinelenen profil adlarında büyük/küçük harf farkı dikkate alınmaz; ilk profil korunur. DPAPI tokenı okunamazsa tarama devam eder, Telegram tokenı boş kalır ve yeniden girmeniz istenir.
+
+`Kaldir.bat`, onayınızdan sonra uygulama klasöründeki eski/portable veriyi, `%LOCALAPPDATA%\KariyerTakip` verisini ve varsa `KARIYERTAKIP_DATA_DIR` içindeki uygulama dosyalarını temizler. JSON, token, varsayılan veritabanı/WAL dosyaları, günlükler, geri bildirimler, derleme çıktıları ve mevcut kullanıcının Windows başlangıç kaydı silinir. `DatabasePath` ile farklı ad/yol seçtiyseniz o özel veritabanını ayrıca kontrol edin. Önce uygulamayı kapatın; çalışan örnek varsa temizleme başlamaz. Betik hatada başarı mesajı vermez. Başka Windows hesaplarının dosyalarını/kayıtlarını temizlemez. İşlem geri alınamaz; ihtiyaç duyduğunuz veriyi önceden yedekleyin. PowerShell betik çalıştırma ilkesi izin vermiyorsa işlem hata ile durur; korumayı otomatik değiştirmez. İzinli ortamda silinecek hedefleri görmek için `./scripts/Uninstall.ps1 -ApplicationDirectory . -WhatIf` kullanın.
+
 ## Telegram
 
 BotFather ile bot oluşturup token ve sohbet ID'sini **Telegram & Sistem** sekmesine girin. Token maskelenir ve kaydedildiğinde DPAPI ile korunur. Eski düz metin token ilk açılışta şifreli dosyaya taşınır; JSON'dan çıkarılır. Şifreli dosya başka Windows hesabında açılamaz; o hesapta token'ı tekrar girin.
@@ -90,6 +110,12 @@ Ağ kesintisinde Telegram isteği kabul etmiş ancak uygulama yanıtı alamamı�
 
 `Scan.MaxConcurrency` 1–8 arasında eşzamanlı ilan sayısını, `RequestDelayMs` tüm API istekleri arasındaki asgari aralığı belirler. Varsayılanlar 2 ve 300 ms. 429/5xx ve ağ hatalarında üstel bekleme, jitter ve HTTP `Retry-After` kullanılır. İptal istekleri yeniden denenmez.
 
+API `Retry-After` değeri 60 saniyeyi aşarsa tarama içinde beklenmez; istek hata olarak sonraki taramaya bırakılır. Telegram kuyruğu sunucunun istediği süreyi zaman damgasıyla saklar; uzun süre boyunca açık bir görev bekletilmez.
+
+`Scan.ApiWarningThreshold` (varsayılan 3), üst üste boş liste veya ayrıştırma hatası sonrasında “API değişmiş olabilir” uyarısını Telegram kuyruğuna ekler. Sayaç `api-health.json` içinde süreçler arasında saklanır; aynı kesinti için tek uyarı oluşturulur. Telegram kapalıysa gönderilemez. Boş listenin arama filtresinden veya gerçekten ilan olmamasından kaynaklanabileceğini de kontrol edin. Gerçek API örnekleri `tests/KariyerTakip.Tests/Fixtures/Api/2026-10-03` altında sözleşme testlerinde kullanılır.
+
+İlan ayrıntısındaki **Bu değerlendirme yanlış** düğmesiyle beklenen sonucu ve açıklamanızı kaydedebilirsiniz. Kamuya açık ilan/kadro metni veri klasöründeki `feedback-fixtures` içine JSON olarak kaydedilir. Profil, token veya başvuru notları aktarılmaz. Serbest açıklamaya kişisel bilgi yazmayın. Bu dosyalar otomatik yayımlanmaz veya teste dönüştürülmez; inceleyip uygun bir regresyon testi eklemek gerekir.
+
 Kadro anahtarları başlık/unvan kimliğinden üretilir; API sıralaması kimliği değiştirmez. Eski eşleşen kadro anahtarları korunur. Aynı kimlikli kadrolar ayrıştırılır; artık dönmeyen kadrolar geçmişten silinmeden pasif yapılır. API başarısız olduğunda önbellek korunur.
 
 `Scan.ReminderDays` son başvuruya kaç gün kala hatırlatma gönderileceğini belirler (varsayılan 3; 0 kapalı). Hatırlatmalar **tarama çalıştığında** kontrol edilir ve ilan/son tarih/eşik için tekilleştirilir. Düzenli kontrol için Görev Zamanlayıcı kullanın; uygulamanın açık olması tek başına periyodik tarama başlatmaz.
@@ -111,12 +137,20 @@ dotnet run --project KariyerTakip.csproj -- --scan-once
 
 Tarama işi asenkron yürür; WinForms giriş noktası STA gereksinimi için senkron tutulur. `scripts/ZamanlanmisTarama.bat` yayın paketinde exe ile aynı klasöre konur. Görev Zamanlayıcı'da saatlik tetikleyici ve aynı Windows hesabıyla bu betiği çalıştırın. Bir önceki görev sürüyorsa yeni örnek başlatmama seçeneğini seçin.
 
+Arayüz ve ekran olmadan çalışan görev aynı `Global\KariyerTakip` mutex'ini süreç boyunca tutar. Arayüz açıksa zamanlanmış görev kod 4 ile çıkar; tarama için arayüzü kapatın veya **Şimdi Tara** düğmesini kullanın. SQLite WAL modunda çalışır ve her bağlantıda 5 saniye `busy_timeout` vardır. Beklenmedik sonlanan süreçten kalan mutex sonraki çalışmada devralınır.
+
 ## CI ve yayın
+
+Kurulum exe'sini yeniden oluşturmak için Inno Setup 7 gerekir: `./scripts/BuildInstaller.ps1 -CompilerPath 'ISCC.exe tam yolu'`. Betik üç mimariyi yayınlar, `installer/KariyerTakip.iss` dosyasını derler ve exe'nin yanına SHA256 dosyası yazar. `PrepareInstallerCompiler.ps1`, resmi ve yayıncı imzası doğrulanan Inno Setup 7.1.0 derleyicisini çalışma alanına portable olarak hazırlar; sisteme kaldırma kaydı eklemez. Yayın iş akışı ZIP ile birlikte kurulum exe'sini de üretir.
 
 - `.github/workflows/ci.yml`: `main` push ve PR'larda `windows-latest` ile Release derlemesi ve çözüm testleri; TRX raporu artifact olarak saklanır.
 - `.github/workflows/release.yml`: elle çalıştırıldığında test edilmiş Windows zip artifact'i oluşturur. `v*` etiketi gönderildiğinde aynı paket GitHub Releases'e yüklenir.
 - Yerel paket: normal PowerShell oturumunda `& ./scripts/Publish.ps1` çalıştırın. Betik çalıştırma ilkeniz izin vermiyorsa CI iş akışını kullanın.
-- Paket yalnızca exe, örnek ayarlar, README ve Görev Zamanlayıcı betiğinden oluşur; kişisel veri içermez.
+- Paket exe, örnek ayarlar, belgeler, ekran görüntüleri, sağlama toplamı, Görev Zamanlayıcı ve kaldırma betiklerini içerir; kişisel veri içermez.
+
+SDK `global.json` ile 10.0.401 sürümüne sabitlenir; aynı özellik bandındaki düzeltme sürümleri kabul edilir. CI ve yayın akışı doğrudan/geçişli NuGet güvenlik denetimini çalıştırır. Dependabot NuGet ve GitHub Actions için haftalık güncelleme önerir; güvenlik bildirimleri [SECURITY.md](SECURITY.md) içindedir.
+
+Tek dosya yayınında sıkıştırma açıktır. ZIP içinde exe için `SHA256SUMS.txt`, ZIP yanında `KariyerTakip-win-x64.zip.sha256` bulunur. PowerShell'de `Get-FileHash .\KariyerTakip-win-x64.zip -Algorithm SHA256` çıktısını yan dosyayla karşılaştırın. SHA256 kimlik doğrulayan bir kod imzası değildir. Bir Windows kod imzalama sertifikanız varsa yayın ortamında `KARIYERTAKIP_SIGN_THUMBPRINT` ayarlayıp `signtool.exe`yi PATH'e ekleyin; aksi durumda paket imzasızdır. Sürüm notları `CHANGELOG.md` içeriğinden oluşturulur.
 
 ## Sık karşılaşılan sorunlar
 
@@ -134,6 +168,8 @@ Tarama işi asenkron yürür; WinForms giriş noktası STA gereksinimi için sen
 ## Geliştirme ve katkı
 
 Servisler `Services/`, depolama `Storage/`, modeller `Models/`, UI bileşenleri `Forms/` altındadır. Profil/ayar/bildirim kaydı servislerde; sekmeler ayrı UserControl bileşenlerindedir. `MainForm` seçim, tarama, tema ve bileşen koordinasyonunu yapar.
+
+Tarama yaşam döngüsü ve iptali `ScanPresenter`, tepsi/menü yaşam döngüsü `DesktopLifetime` içinde yönetilir. Tema ve günlük görünümü ayrı partial dosyalardadır. `DeadlineReminderService` DI'dan alınır.
 
 Testler ayrıştırma, uygunluk, şema migrasyonu, sıra bağımsız kadro kimliği, iptal, sahte HTTP yanıtları, mesaj bölme/kodlama, kısmi gönderim, hız sınırı, yollar, ayar koruma, DPAPI, loglar, profiller, başvuru takibi ve hatırlatmaları kapsar. DPAPI testlerini normal Windows kullanıcı hesabında çalıştırın. Gerçek kurumsal ilanlardan kısa örneklerin kaynakları test dosyasında belirtilmiştir.
 

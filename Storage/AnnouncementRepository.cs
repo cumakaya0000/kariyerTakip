@@ -24,10 +24,21 @@ public class AnnouncementRepository : IAnnouncementRepository
             Directory.CreateDirectory(dir);
         }
 
-        _connectionString = $"Data Source={dbPath}";
+        _connectionString = new SqliteConnectionStringBuilder { DataSource = dbPath }.ToString();
     }
 
-    private SqliteConnection CreateConnection() => new SqliteConnection(_connectionString);
+    private SqliteConnection CreateConnection()
+    {
+        var connection = new SqliteConnection(_connectionString) { DefaultTimeout = 5 };
+        connection.StateChange += (_, e) =>
+        {
+            if (e.CurrentState != System.Data.ConnectionState.Open) return;
+            using var command = connection.CreateCommand();
+            command.CommandText = "PRAGMA busy_timeout = 5000;";
+            command.ExecuteNonQuery();
+        };
+        return connection;
+    }
 
     public async Task InitializeDatabaseAsync()
     {

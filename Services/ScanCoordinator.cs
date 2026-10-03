@@ -15,6 +15,7 @@ public class ScanRunResult
     public int FailedCount { get; set; }
     public int EligibleCount { get; set; }
     public int NeedsReviewCount { get; set; }
+    public int ParseErrorCount { get; set; }
     public string? ErrorMessage { get; set; }
 }
 
@@ -31,6 +32,8 @@ public class ScanCoordinator
     private readonly AppConfig _config;
     private readonly ProfileOptions _profile;
     private readonly ILogger<ScanCoordinator> _logger;
+    private readonly DeadlineReminderService _reminders;
+    private readonly ApiHealthMonitor? _health;
 
     public ScanCoordinator(
         CareerGateClient client,
@@ -41,7 +44,9 @@ public class ScanCoordinator
         NotificationDispatcher dispatcher,
         IOptions<AppConfig> config,
         IOptions<ProfileOptions> profile,
-        ILogger<ScanCoordinator> logger)
+        ILogger<ScanCoordinator> logger,
+        DeadlineReminderService reminders,
+        ApiHealthMonitor? health = null)
     {
         _client = client;
         _repository = repository;
@@ -52,6 +57,8 @@ public class ScanCoordinator
         _config = config.Value;
         _profile = profile.Value;
         _logger = logger;
+        _reminders = reminders;
+        _health = health;
     }
 
     public async Task<ScanRunResult> RunScanAsync(CancellationToken cancellationToken = default, ProfileOptions? profile = null)
@@ -86,6 +93,11 @@ public class ScanCoordinator
                 _logger.LogError("Tarama başlatılamadı: {Error}", errMsg);
                 result.Status = ScanStatus.Failed;
                 result.ErrorMessage = errMsg;
+                if (_health != null)
+                {
+                    await _health.ObserveAsync(activeListResult.Status == ApiCallStatus.EmptyResponse, activeListResult.Status == ApiCallStatus.ParseError, false);
+                    await _dispatcher.ProcessOutboxAsync(cancellationToken);
+                }
                 return result;
             }
 
@@ -114,11 +126,13 @@ public class ScanCoordinator
                     result.FailedCount += itemResult.FailedCount;
                     result.EligibleCount += itemResult.EligibleCount;
                     result.NeedsReviewCount += itemResult.NeedsReviewCount;
+                    result.ParseErrorCount += itemResult.ParseErrorCount;
                 }
             });
             // 4. Dispatch pending notifications
-            await new DeadlineReminderService(_repository, _telegramNotifier, Microsoft.Extensions.Options.Options.Create(_config))
-                .QueueAsync(scanProfile, cancellationToken);
+            if (_health != null) await _health.ObserveAsync(announcements.Count == 0, result.ParseErrorCount > 0,
+                announcements.Count > 0 && result.ParseErrorCount == 0 && result.FailedCount == 0);
+            await _reminders.QueueAsync(scanProfile, cancellationToken);
             await _dispatcher.ProcessOutboxAsync(cancellationToken);
 
             if (result.Status != ScanStatus.Cancelled)
@@ -189,6 +203,7 @@ public class ScanCoordinator
         {
             result.FailedCount++;
         }
+        if (previewResult.Status == ApiCallStatus.ParseError || posResult.Status == ApiCallStatus.ParseError) result.ParseErrorCount++;
 
         if (!previewResult.IsSuccess && !posResult.IsSuccess && existing == null)
         {

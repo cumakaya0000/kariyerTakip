@@ -34,7 +34,7 @@ public sealed class ServiceReliabilityTests
         {
             calls++;
             if (calls == 1) { var retry = Response(429, "{}"); retry.Headers.RetryAfter = new RetryConditionHeaderValue(TimeSpan.Zero); return Task.FromResult(retry); }
-            return Task.FromResult(Response(200, "{\"searchIlan\":[{\"guid\":\"date\",\"bitTarih\":\"2099-10-03T21:00:00\"}]}"));
+            return Task.FromResult(Response(200, "{\"searchIlan\":[{\"guid\":\"date\",\"ilanBaslik\":\"Test ilan\",\"bitTarih\":\"2099-10-03T21:00:00\"}]}"));
         }));
         var client = new CareerGateClient(http, Options.Create(new AppConfig { Scan = new ScanOptions { RequestDelayMs = 0 } }), NullLogger<CareerGateClient>.Instance);
         var result = await client.GetActiveAnnouncementsAsync();
@@ -267,7 +267,7 @@ public sealed class ServiceReliabilityTests
         var coordinator = new ScanCoordinator(new CareerGateClient(http, options, NullLogger<CareerGateClient>.Instance), fixture.Repository,
             new EligibilityEvaluator(new RequirementExtractor(reader), reader), new ChangeDetector(), notifier,
             new NotificationDispatcher(fixture.Repository, notifier, NullLogger<NotificationDispatcher>.Instance), options,
-            Options.Create(new ProfileOptions()), NullLogger<ScanCoordinator>.Instance);
+            Options.Create(new ProfileOptions()), NullLogger<ScanCoordinator>.Instance, new DeadlineReminderService(fixture.Repository, notifier, options));
         Assert.Equal(ScanStatus.Cancelled, (await coordinator.RunScanAsync(cancellation.Token)).Status);
         using var conn = new SqliteConnection($"Data Source={fixture.DatabasePath};Pooling=False"); await conn.OpenAsync();
         using var query = conn.CreateCommand(); query.CommandText = "SELECT Status FROM ScanRuns ORDER BY Id DESC LIMIT 1";

@@ -20,7 +20,7 @@ public class SearchIlanRequest
 public class GetIseAlimPageResponse
 {
     [JsonPropertyName("searchIlan")]
-    public List<SearchIlanItem> SearchIlan { get; set; } = new();
+    public List<SearchIlanItem>? SearchIlan { get; set; }
 }
 
 public class SearchIlanItem

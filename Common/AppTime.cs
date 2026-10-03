@@ -6,7 +6,17 @@ namespace KariyerTakip.Common;
 
 public static class AppTime
 {
-    public static TimeZoneInfo PortalTimeZone { get; } = TimeZoneInfo.FindSystemTimeZoneById("Europe/Istanbul");
+    public static TimeZoneInfo PortalTimeZone { get; } = ResolvePortalTimeZone(TimeZoneInfo.FindSystemTimeZoneById);
+    public static TimeZoneInfo ResolvePortalTimeZone(Func<string, TimeZoneInfo> lookup)
+    {
+        foreach (var id in new[] { "Europe/Istanbul", "Turkey Standard Time" })
+        {
+            try { return lookup(id); }
+            catch (Exception ex) when (ex is TimeZoneNotFoundException or InvalidTimeZoneException) { }
+        }
+        // Turkey currently uses UTC+3 year-round; this also supports invariant runtimes.
+        return TimeZoneInfo.CreateCustomTimeZone("Turkey-UTC+3", TimeSpan.FromHours(3), "Türkiye", "Türkiye");
+    }
     public static DateTime ToUtc(DateTime value) => value.Kind == DateTimeKind.Unspecified
         ? TimeZoneInfo.ConvertTimeToUtc(value, PortalTimeZone) : value.ToUniversalTime();
     public static DateTime? ToUtc(DateTime? value) => value.HasValue ? ToUtc(value.Value) : null;

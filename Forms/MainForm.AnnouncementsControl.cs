@@ -257,6 +257,9 @@ public partial class MainForm
         pnlActions.Controls.Add(owner._btnOpenKariyerKapisi);
         pnlActions.Controls.Add(owner._btnOpenEDevlet);
         pnlActions.Controls.Add(owner._btnSendTelegramNow);
+        var feedback = new Button { Text = "Bu değerlendirme yanlış", AutoSize = true, Height = 38 };
+        feedback.Click += async (_, _) => await owner.SaveEvaluationFeedbackAsync();
+        pnlActions.Controls.Add(feedback);
 
         owner._rtbDetailContent = new RichTextBox
         {

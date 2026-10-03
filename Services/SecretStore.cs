@@ -12,8 +12,16 @@ public sealed class SecretStore
     public SecretStore(string? path = null) => _path = path ?? AppPaths.TelegramSecretFile;
     public string Read()
     {
-        var content = File.Exists(_path) ? File.ReadAllText(_path) : "";
-        return string.IsNullOrWhiteSpace(content) ? "" : Transform(Convert.FromBase64String(content), false);
+        try
+        {
+            var content = File.Exists(_path) ? File.ReadAllText(_path) : "";
+            return string.IsNullOrWhiteSpace(content) ? "" : Transform(Convert.FromBase64String(content), false);
+        }
+        catch (Exception ex) when (ex is Win32Exception or FormatException or IOException or UnauthorizedAccessException)
+        {
+            StartupDiagnostics.Report("Telegram token okunamadı, yeniden girin. Görevi tokenı kaydeden Windows hesabıyla çalıştırın.");
+            return "";
+        }
     }
     public Task SaveAsync(string token) => AtomicFile.WriteAsync(_path,
         string.IsNullOrEmpty(token) ? "" : Transform(Encoding.UTF8.GetBytes(token), true));

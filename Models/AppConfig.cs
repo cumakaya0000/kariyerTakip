@@ -30,4 +30,5 @@ public class ScanOptions
     public int RequestDelayMs { get; set; } = 300;
     public int MaxConcurrency { get; set; } = 2;
     public int ReminderDays { get; set; } = 3; // Zero disables reminders
+    public int ApiWarningThreshold { get; set; } = 3;
 }

@@ -16,13 +16,42 @@ public static class Program
     [STAThread]
     public static int Main(string[] args)
     {
-        var isHeadless = args.Any(a => a.Equals("--scan-once", StringComparison.OrdinalIgnoreCase) ||
-                                       a.Equals("--headless", StringComparison.OrdinalIgnoreCase));
-
-        if (!isHeadless)
+        var headless = args.Any(a => a.Equals("--scan-once", StringComparison.OrdinalIgnoreCase) || a.Equals("--headless", StringComparison.OrdinalIgnoreCase));
+        if (!headless)
         {
             ApplicationConfiguration.Initialize();
+            Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
+            Application.ThreadException += (_, e) => ReportFatal(e.Exception, false);
         }
+        AppDomain.CurrentDomain.UnhandledException += (_, e) => ReportFatal(e.ExceptionObject as Exception, headless);
+        try
+        {
+            using var instance = new InstanceGate();
+            if (!instance.TryAcquire())
+            {
+                StartupDiagnostics.Report("KariyerTakip zaten açık. Zamanlanmış tarama sonraki çalışmaya bırakıldı.");
+                if (!headless) MessageBox.Show("KariyerTakip zaten açık. Açık pencereyi veya sistem tepsisini kontrol edin.", "KariyerTakip");
+                return 4;
+            }
+            return Run(args, headless);
+        }
+        catch (UnauthorizedAccessException)
+        {
+            StartupDiagnostics.Report("Başka bir Windows hesabındaki KariyerTakip oturumu veya veri erişim izni işlemi engelledi.");
+            if (!headless) MessageBox.Show("KariyerTakip oturumu veya veri klasörü erişilemiyor. Çalışan oturumu ve klasör izinlerini kontrol edin.", "KariyerTakip");
+            return 4;
+        }
+        catch (Exception ex) { ReportFatal(ex, headless); return 1; }
+    }
+
+    private static void ReportFatal(Exception? exception, bool headless)
+    {
+        StartupDiagnostics.Report($"Uygulama hatası: {exception?.GetType().Name}. Günlükleri kontrol edin.");
+        if (!headless) MessageBox.Show("KariyerTakip bir hata nedeniyle işlemi tamamlayamadı. Veri klasöründeki logs günlüklerini kontrol edin.", "KariyerTakip", MessageBoxButtons.OK, MessageBoxIcon.Error);
+    }
+
+    private static int Run(string[] args, bool isHeadless)
+    {
 
         ConfigurationStore.BootstrapAsync().GetAwaiter().GetResult();
         var builder = Host.CreateApplicationBuilder(args);
@@ -30,8 +59,8 @@ public static class Program
         // 1. Configuration files from deterministic AppPaths
         builder.Configuration
             .SetBasePath(AppPaths.BaseDirectory)
-            .AddJsonFile("appsettings.json", optional: true, reloadOnChange: true)
-            .AddJsonFile("profile.json", optional: true, reloadOnChange: true)
+            .AddJsonFile("appsettings.json", optional: true, reloadOnChange: false)
+            .AddJsonFile("profile.json", optional: true, reloadOnChange: false)
             .AddEnvironmentVariables(prefix: "KARIYERTAKIP_");
 
         // 2. Options bindings
@@ -41,7 +70,7 @@ public static class Program
         builder.Configuration.Bind(initialProfile);
         var profileStore = new ProfileStore();
         var catalog = profileStore.Load(initialProfile);
-        var activeProfile = catalog.Profiles.Single(p => p.Name == catalog.ActiveName).Profile;
+        var activeProfile = catalog.Profiles.First(p => p.Name == catalog.ActiveName).Profile;
         builder.Services.PostConfigure<ProfileOptions>(profile =>
         {
             foreach (var property in typeof(ProfileOptions).GetProperties().Where(p => p.CanWrite))
@@ -50,6 +79,7 @@ public static class Program
         builder.Services.PostConfigure<AppConfig>(config =>
         {
             if (string.IsNullOrWhiteSpace(config.Telegram.BotToken)) config.Telegram.BotToken = new SecretStore().Read();
+            config.Desktop.StartWithWindows = WindowsStartup.IsEnabled();
         });
 
         // 3. Logging
@@ -70,6 +100,8 @@ public static class Program
         builder.Services.AddSingleton<ChangeDetector>();
         builder.Services.AddSingleton<IAnnouncementRepository, AnnouncementRepository>();
         builder.Services.AddSingleton<NotificationDispatcher>();
+        builder.Services.AddSingleton<DeadlineReminderService>();
+        builder.Services.AddSingleton<ApiHealthMonitor>();
         builder.Services.AddSingleton<ScanCoordinator>();
 
         if (!isHeadless)
@@ -78,6 +110,7 @@ public static class Program
         }
 
         using var host = builder.Build();
+        _ = host.Services.GetRequiredService<Microsoft.Extensions.Options.IOptions<AppConfig>>().Value;
 
         // 5. Execution mode
         if (isHeadless)
@@ -95,6 +128,11 @@ public static class Program
         else
         {
             var mainForm = host.Services.GetRequiredService<MainForm>();
+            mainForm.Shown += (_, _) =>
+            {
+                var warnings = StartupDiagnostics.Drain();
+                if (warnings.Length > 0) MessageBox.Show(string.Join(Environment.NewLine + Environment.NewLine, warnings), "KariyerTakip — Açılış uyarısı", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            };
             Application.Run(mainForm);
             return 0;
         }

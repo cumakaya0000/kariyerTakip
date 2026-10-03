@@ -1,5 +1,21 @@
 # Değişiklikler
 
+## Yerel geliştirme — 2026-10-04
+
+- KT simgesi exe, ana pencere, sistem tepsisi ve kısayollara eklendi.
+- Türkçe tanıtım adımları, klasör seçimi, masaüstü/Windows başlangıç tercihleri ve kurulum sonrası açma seçeneği olan tek kurulum exe'si eklendi.
+- Kurulum x86/x64/ARM64 sürümünü otomatik seçer; .NET dahildir. Denetim Masası kaldırma kaydı ve veri silme tercihi eklenir.
+
+- Kaldırma betiği gerçek veri klasörlerini ve başlangıç kaydını temizler; hata ve çalışan süreçte başarı bildirmez.
+- Global mutex arayüz ve zamanlanmış taramanın eşzamanlı çalışmasını önler; SQLite bağlantıları 5 saniye bekleme kullanır ve WAL doğrulanır.
+- Bozuk JSON yedeklenerek varsayılanlarla açılır; profil adı çakışmaları ve DPAPI okuma hataları açılışı çökertmez.
+- API beklemesi 60 saniyeyle sınırlanır; Türkiye saat dilimi Windows ve UTC+3 yedeklerine sahiptir.
+- Gerçek API yanıtlarıyla sözleşme testleri, kalıcı API sağlık sayacı ve yerel değerlendirme geri bildirimi eklenir.
+- Telegram mesajları otomatik değerlendirme notu içerir; istemci dürüst uygulama kimliğiyle istek yapar.
+- Yayın sıkıştırması, SHA256, isteğe bağlı sertifika imzası ve CHANGELOG sürüm notları eklenir.
+- SDK sabitleme, Dependabot, güvenlik denetimi, SECURITY.md ve editör ayarları eklenir.
+- Hatırlatmalar DI'a, tarama ve tepsi yaşam döngüsü ayrı sınıflara taşınır; güvenilirlik testleri genişletilir.
+
 ## Yayına hazırlanan sürüm — 2026-10-03
 
 - Test projesi çözüme eklendi; kurulum adımları ve başarısızlık kontrolleri düzeltildi.

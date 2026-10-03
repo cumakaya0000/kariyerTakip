@@ -98,7 +98,7 @@ public class TelegramNotifier
                 if (statusCode == 429 || statusCode >= 500)
                 {
                     var result = TelegramSendResult.Transient($"Telegram geçici hatası (HTTP {statusCode}).", statusCode);
-                    var delay = RetryPolicy.GetDelay(1, response.Headers.RetryAfter);
+                    var delay = RetryPolicy.GetScheduledDelay(1, response.Headers.RetryAfter);
                     try
                     {
                         using var json = JsonDocument.Parse(err);
@@ -140,6 +140,7 @@ public class TelegramNotifier
     {
         var sb = new System.Text.StringBuilder();
         sb.AppendLine(notificationHeader);
+        sb.AppendLine("Otomatik değerlendirmedir; başvurudan önce resmî ilan metnini kontrol edin.");
         sb.AppendLine("━━━━━━━━━━━━━━━━━━━━");
         sb.AppendLine($"🏛 <b>Kurum:</b> {HtmlEncode(announcement.InstitutionName)}");
         if (!string.IsNullOrWhiteSpace(announcement.UnitName))

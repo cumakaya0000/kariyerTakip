@@ -19,6 +19,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\KariyerTakip.csproj" />
+    <None Update="Fixtures\**\*.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

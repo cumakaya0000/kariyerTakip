@@ -57,7 +57,7 @@ public class CareerGateClient
             _httpClient.BaseAddress = new Uri(_config.ApiBaseUrl.TrimEnd('/') + "/");
         }
 
-        _httpClient.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
+        _httpClient.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", "KariyerTakip/1.0 (+https://github.com/cumakaya0000/kariyerTakip)");
         _httpClient.DefaultRequestHeaders.TryAddWithoutValidation("Origin", _config.PortalBaseUrl);
         _httpClient.DefaultRequestHeaders.TryAddWithoutValidation("Referer", _config.PortalBaseUrl + "/");
     }
@@ -77,7 +77,9 @@ public class CareerGateClient
             req,
             resp =>
             {
-                var list = resp?.SearchIlan ?? new List<SearchIlanItem>();
+                var list = resp?.SearchIlan ?? throw new JsonException("API sözleşmesi değişti: searchIlan listesi bulunamadı.");
+                if (list.Any(x => x == null || string.IsNullOrWhiteSpace(x.Guid) || string.IsNullOrWhiteSpace(x.IlanBaslik)))
+                    throw new JsonException("API ilan kimliği veya başlığı eksik.");
                 // Only return active postings
                 var now = DateTime.UtcNow;
                 return list.Where(x => !x.BitTarih.HasValue || x.BitTarih.Value >= now).ToList();
@@ -91,7 +93,8 @@ public class CareerGateClient
         return await ExecuteWithRetryAsync<IlanPreviewResponse, IlanPreviewResponse>(
             "ilan/GetIlanPreviewPublic",
             req,
-            resp => resp,
+            resp => resp == null || (string.IsNullOrWhiteSpace(resp.IlanBaslik) && string.IsNullOrWhiteSpace(resp.IlanMetni))
+                ? throw new JsonException("API ilan önizlemesi beklenen alanları içermiyor.") : resp,
             cancellationToken);
     }
 
@@ -101,7 +104,8 @@ public class CareerGateClient
         return await ExecuteWithRetryAsync<List<AltIlanResponse>, List<AltIlanResponse>>(
             "altilan/GetAltIlanInfoByIlanIdPublic",
             req,
-            resp => resp ?? new List<AltIlanResponse>(),
+            resp => resp == null || resp.Any(p => p == null || (string.IsNullOrWhiteSpace(p.IlanBaslik) && string.IsNullOrWhiteSpace(p.Unvan)))
+                ? throw new JsonException("API kadro listesi beklenen alanları içermiyor.") : resp,
             cancellationToken);
     }
 
@@ -153,6 +157,10 @@ public class CareerGateClient
                     return ApiResult<TOut>.Empty();
 
                 return ApiResult<TOut>.Ok(resultData);
+            }
+            catch (RetryDeferredException ex)
+            {
+                return ApiResult<TOut>.Fail(ApiCallStatus.HttpError, ex.Message, 429);
             }
             catch (HttpRequestException ex)
             {

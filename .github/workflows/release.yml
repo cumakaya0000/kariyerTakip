@@ -12,14 +12,24 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: '10.0.x'
+          global-json-file: global.json
       - run: dotnet test KariyerTakip.slnx -c Release
       - shell: pwsh
+        run: ./scripts/AuditPackages.ps1
+      - shell: pwsh
         run: ./scripts/Publish.ps1
+      - shell: pwsh
+        run: ./scripts/PrepareInstallerCompiler.ps1
+      - shell: pwsh
+        run: ./scripts/BuildInstaller.ps1
       - uses: actions/upload-artifact@v4
         with:
           name: KariyerTakip-win-x64
-          path: artifacts/KariyerTakip-win-x64.zip
+          path: |
+            artifacts/KariyerTakip-win-x64.zip
+            artifacts/KariyerTakip-win-x64.zip.sha256
+            artifacts/KariyerTakip-Kurulum.exe
+            artifacts/KariyerTakip-Kurulum.exe.sha256
   release:
     if: startsWith(github.ref, 'refs/tags/v')
     needs: package
@@ -27,6 +37,7 @@ jobs:
       contents: write
     runs-on: windows-latest
     steps:
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           name: KariyerTakip-win-x64
@@ -35,4 +46,4 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.ref_name }}
           RELEASE_REPO: ${{ github.repository }}
-        run: gh release create "$env:RELEASE_TAG" KariyerTakip-win-x64.zip --repo "$env:RELEASE_REPO" --generate-notes
+        run: gh release create "$env:RELEASE_TAG" KariyerTakip-Kurulum.exe KariyerTakip-Kurulum.exe.sha256 KariyerTakip-win-x64.zip KariyerTakip-win-x64.zip.sha256 --repo "$env:RELEASE_REPO" --notes-file CHANGELOG.md

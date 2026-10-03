@@ -24,3 +24,7 @@ profiles.json
 *.secret
 *.tmp
 artifacts/
+feedback-fixtures/
+api-health.json
+*.bak
+*.bak.*

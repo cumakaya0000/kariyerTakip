@@ -6,9 +6,13 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <UseWindowsForms>true</UseWindowsForms>
+    <ApplicationIcon>Assets\kt.ico</ApplicationIcon>
+    <Version>1.0.0</Version>
+    <RuntimeIdentifiers>win-x86;win-x64;win-arm64</RuntimeIdentifiers>
   </PropertyGroup>
 
   <ItemGroup>
+    <EmbeddedResource Include="Assets\kt.ico" />
     <Compile Remove="tests\**" />
     <None Remove="tests\**" />
   </ItemGroup>
