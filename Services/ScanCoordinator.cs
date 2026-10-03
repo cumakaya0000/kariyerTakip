@@ -106,6 +106,8 @@ public class ScanCoordinator
                 }
 
                 var existing = await _repository.GetAnnouncementByGuidAsync(item.Guid);
+                var previousEvals = await _repository.GetLatestEvaluationsByAnnouncementAsync(item.Guid, profileHash);
+                var wasPreviouslyEligible = previousEvals.Any(e => e.Status == EligibilityStatus.Eligible.ToString());
 
                 // 1. Fetch preview
                 var previewResult = await _client.GetAnnouncementPreviewAsync(item.Guid, cancellationToken);
@@ -116,6 +118,7 @@ public class ScanCoordinator
 
                 // If fetching failed completely on network error, do not delete existing positions!
                 var positionsToUse = new List<AltIlanResponse>();
+                List<PositionRecord>? cachedDbPositions = null;
                 if (posResult.IsSuccess && posResult.Data != null && posResult.Data.Any())
                 {
                     positionsToUse = posResult.Data;
@@ -123,7 +126,7 @@ public class ScanCoordinator
                 else if (existing != null)
                 {
                     // Fallback to cached positions from DB
-                    var cachedDbPositions = await _repository.GetPositionsByAnnouncementGuidAsync(item.Guid);
+                    cachedDbPositions = await _repository.GetPositionsByAnnouncementGuidAsync(item.Guid);
                     positionsToUse = cachedDbPositions.Select(p => new AltIlanResponse
                     {
                         IlanBaslik = p.Title,
@@ -133,9 +136,13 @@ public class ScanCoordinator
                     _logger.LogWarning("Kadro API yanıt vermedi, mevcut önbellekteki kadrolar korundu: {Guid}", item.Guid);
                 }
 
-                if (!previewResult.IsSuccess && !posResult.IsSuccess && existing == null)
+                if (!previewResult.IsSuccess || !posResult.IsSuccess)
                 {
                     result.FailedCount++;
+                }
+
+                if (!previewResult.IsSuccess && !posResult.IsSuccess && existing == null)
+                {
                     continue;
                 }
 
@@ -144,7 +151,8 @@ public class ScanCoordinator
                 var detailUrl = $"{_config.PortalBaseUrl.TrimEnd('/')}/IlanDetay?i={item.Guid}";
                 var applicationUrl = !string.IsNullOrWhiteSpace(previewResult.Data?.EDevletServisURL)
                     ? previewResult.Data.EDevletServisURL
-                    : (!string.IsNullOrWhiteSpace(previewResult.Data?.BasvuruLinki) ? previewResult.Data.BasvuruLinki : item.BasvuruLinki);
+                    : (!string.IsNullOrWhiteSpace(previewResult.Data?.BasvuruLinki) ? previewResult.Data.BasvuruLinki :
+                        (!string.IsNullOrWhiteSpace(item.BasvuruLinki) ? item.BasvuruLinki : existing?.ApplicationUrl));
 
                 var rawCombinedContent = $"{generalText}\n" + string.Join("\n", positionsToUse.Select(p => $"{p.IlanBaslik} {p.Unvan} {p.IlanMetni}"));
                 var contentHash = _changeDetector.ComputeHash(rawCombinedContent);
@@ -165,14 +173,14 @@ public class ScanCoordinator
                     FirstSeenAt = existing?.FirstSeenAt ?? DateTime.UtcNow,
                     LastCheckedAt = DateTime.UtcNow,
                     IsActive = true,
-                    LastScanStatus = "Success"
+                    LastScanStatus = previewResult.IsSuccess && posResult.IsSuccess ? "Success" : "Partial"
                 };
 
                 await _repository.UpsertAnnouncementAsync(record);
 
                 // Build stable position records
-                var dbPositions = new List<PositionRecord>();
-                for (int i = 0; i < positionsToUse.Count; i++)
+                var dbPositions = cachedDbPositions ?? new List<PositionRecord>();
+                for (int i = 0; cachedDbPositions == null && i < positionsToUse.Count; i++)
                 {
                     var p = positionsToUse[i];
                     var title = p.IlanBaslik ?? "Kadro";
@@ -203,6 +211,8 @@ public class ScanCoordinator
                     var posKey = dbPositions[i].PositionKey;
 
                     var eval = _evaluator.EvaluatePosition(p, generalText, _profile, posKey);
+                    eval.Cities = dbPositions[i].Cities;
+                    eval.TotalQuota = dbPositions[i].Quota;
                     evaluatedPositions.Add(eval);
 
                     await _repository.SaveEvaluationAsync(new EvaluationRecord
@@ -218,8 +228,6 @@ public class ScanCoordinator
                 }
 
                 // Check previously eligible state
-                var previousEvals = await _repository.GetLatestEvaluationsByAnnouncementAsync(item.Guid, profileHash);
-                var wasPreviouslyEligible = previousEvals.Any(e => e.Status == EligibilityStatus.Eligible.ToString());
                 var isCurrentlyEligible = evaluatedPositions.Any(e => e.Status == EligibilityStatus.Eligible);
 
                 var changeType = _changeDetector.DetectChanges(existing, record, contentHash, wasPreviouslyEligible, isCurrentlyEligible);
@@ -277,7 +285,8 @@ public class ScanCoordinator
             // 4. Dispatch pending notifications
             await _dispatcher.ProcessOutboxAsync(cancellationToken);
 
-            result.Status = result.FailedCount > 0 ? ScanStatus.Partial : ScanStatus.Success;
+            if (result.Status != ScanStatus.Cancelled)
+                result.Status = result.FailedCount > 0 ? ScanStatus.Partial : ScanStatus.Success;
             await _repository.RecordScanEndAsync(
                 scanId,
                 result.Status,
@@ -327,6 +336,8 @@ public class ScanCoordinator
                 };
 
                 var eval = _evaluator.EvaluatePosition(altIlan, ann.RawGeneralText, profile, pos.PositionKey);
+                eval.Cities = pos.Cities;
+                eval.TotalQuota = pos.Quota;
 
                 await _repository.SaveEvaluationAsync(new EvaluationRecord
                 {

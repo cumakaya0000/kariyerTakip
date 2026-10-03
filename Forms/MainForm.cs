@@ -83,6 +83,10 @@ public partial class MainForm : Form
     // Data Cache
     private List<AnnouncementDisplayItem> _cachedItems = new();
     private AnnouncementDisplayItem? _selectedItem = null;
+    private readonly HashSet<string> _checkedAnnouncementGuids = new();
+    private Button _btnOpenSelectedAnnouncements = null!;
+    private Label _lblCheckedAnnouncements = null!;
+    private bool _isUpdatingAnnouncementRows;
 
     public MainForm(
         IServiceProvider serviceProvider,
@@ -278,19 +282,49 @@ public partial class MainForm : Form
             Dock = DockStyle.Fill,
             AllowUserToAddRows = false,
             AllowUserToDeleteRows = false,
-            ReadOnly = true,
+            ReadOnly = false,
             SelectionMode = DataGridViewSelectionMode.FullRowSelect,
             MultiSelect = false,
             BackgroundColor = Color.White,
             BorderStyle = BorderStyle.None,
-            RowHeadersVisible = false,
+            RowHeadersVisible = true,
+            RowHeadersWidth = 24,
             AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill
         };
+        // Row header styling – show only the selection arrow, no text
+        _gridAnnouncements.RowHeadersDefaultCellStyle.BackColor = Color.FromArgb(240, 242, 245);
+        _gridAnnouncements.RowHeadersDefaultCellStyle.ForeColor = Color.FromArgb(15, 37, 65);
+        _gridAnnouncements.RowHeadersDefaultCellStyle.SelectionBackColor = Color.FromArgb(15, 37, 65);
+        _gridAnnouncements.RowHeadersDefaultCellStyle.SelectionForeColor = Color.White;
 
+
+        _gridAnnouncements.Columns.Add(new DataGridViewCheckBoxColumn
+        {
+            Name = "Checked", HeaderText = "Seç", Width = 42,
+            AutoSizeMode = DataGridViewAutoSizeColumnMode.None,
+            ToolTipText = "Birden fazla ilanı birlikte açmak için işaretleyin"
+        });
         _gridAnnouncements.Columns.Add("Status", "Durum");
         _gridAnnouncements.Columns.Add("Institution", "Kurum");
         _gridAnnouncements.Columns.Add("Title", "İlan Başlığı");
         _gridAnnouncements.Columns.Add("EndDate", "Son Başvuru");
+        foreach (DataGridViewColumn column in _gridAnnouncements.Columns)
+            column.ReadOnly = column.Name != "Checked";
+        _gridAnnouncements.CurrentCellDirtyStateChanged += (s, e) =>
+        {
+            if (_gridAnnouncements.IsCurrentCellDirty && _gridAnnouncements.CurrentCell?.OwningColumn?.Name == "Checked")
+                _gridAnnouncements.CommitEdit(DataGridViewDataErrorContexts.Commit);
+        };
+        _gridAnnouncements.CellValueChanged += (s, e) =>
+        {
+            if (_isUpdatingAnnouncementRows || e.RowIndex < 0 || e.ColumnIndex != _gridAnnouncements.Columns["Checked"]!.Index)
+                return;
+            var row = _gridAnnouncements.Rows[e.RowIndex];
+            if (row.Tag is not AnnouncementDisplayItem item) return;
+            if (row.Cells["Checked"].Value is true) _checkedAnnouncementGuids.Add(item.Record.Guid);
+            else _checkedAnnouncementGuids.Remove(item.Record.Guid);
+            UpdateCheckedAnnouncements();
+        };
 
         _gridAnnouncements.Columns["Status"]!.Width = 100;
         _gridAnnouncements.Columns["Status"]!.FillWeight = 20;
@@ -316,14 +350,37 @@ public partial class MainForm : Form
         _gridAnnouncements.SelectionChanged += GridAnnouncements_SelectionChanged;
         _gridAnnouncements.CellDoubleClick += GridAnnouncements_CellDoubleClick;
 
+        var bulkActions = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Bottom, Height = 48, Padding = new Padding(0, 5, 0, 0),
+            WrapContents = false
+        };
+        _lblCheckedAnnouncements = new Label { Text = "İlanları kutucuklarla seçin", AutoSize = true, Margin = new Padding(3, 9, 12, 0) };
+        _btnOpenSelectedAnnouncements = new Button
+        {
+            Text = "Seçili ilanlara git", AutoSize = true, Height = 32, Visible = false,
+            BackColor = Color.FromArgb(15, 37, 65), ForeColor = Color.White, FlatStyle = FlatStyle.Flat
+        };
+        _btnOpenSelectedAnnouncements.Click += (s, e) =>
+        {
+            foreach (var url in GetCheckedAnnouncementUrls()) OpenUrl(url);
+        };
+        bulkActions.Controls.Add(_lblCheckedAnnouncements);
+        bulkActions.Controls.Add(_btnOpenSelectedAnnouncements);
         leftPanel.Controls.Add(_gridAnnouncements);
         leftPanel.Controls.Add(filterPanel);
+        leftPanel.Controls.Add(bulkActions);
         mainSplit.Panel1.Controls.Add(leftPanel);
 
         // Right Panel (Detailed View & Actions)
         var rightPanel = new Panel { Dock = DockStyle.Fill, BackColor = Color.FromArgb(250, 252, 255), Padding = new Padding(15) };
 
-        var pnlDetailHeader = new Panel { Dock = DockStyle.Top, Height = 110, BackColor = Color.FromArgb(250, 252, 255) };
+        var pnlDetailHeader = new TableLayoutPanel
+        {
+            Dock = DockStyle.Top, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            ColumnCount = 1, RowCount = 4, Padding = new Padding(0, 0, 0, 12)
+        };
+        pnlDetailHeader.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         _lblDetailStatusBadge = new Label
         {
             Text = "BİLGİ",
@@ -362,13 +419,27 @@ public partial class MainForm : Form
             AutoSize = true
         };
 
-        pnlDetailHeader.Controls.Add(_lblDetailStatusBadge);
-        pnlDetailHeader.Controls.Add(_lblDetailInstitution);
-        pnlDetailHeader.Controls.Add(_lblDetailTitle);
-        pnlDetailHeader.Controls.Add(_lblDetailDates);
+        var headerLabels = new[] { _lblDetailStatusBadge, _lblDetailInstitution, _lblDetailTitle, _lblDetailDates };
+        for (int i = 0; i < headerLabels.Length; i++)
+        {
+            var label = headerLabels[i];
+            label.AutoSize = true;
+            label.Margin = new Padding(0, 0, 0, 8);
+            if (i > 0) label.Dock = DockStyle.Fill;
+            pnlDetailHeader.Controls.Add(label, 0, i);
+        }
+        pnlDetailHeader.SizeChanged += (s, e) =>
+        {
+            foreach (var label in headerLabels)
+                label.MaximumSize = new Size(Math.Max(100, pnlDetailHeader.ClientSize.Width), 0);
+        };
 
         // Action Buttons at Bottom
-        var pnlActions = new Panel { Dock = DockStyle.Bottom, Height = 55, BackColor = Color.FromArgb(250, 252, 255) };
+        var pnlActions = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Bottom, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            Padding = new Padding(0, 10, 0, 0), WrapContents = true
+        };
         _btnOpenKariyerKapisi = new Button
         {
             Text = "🌐 Kariyer Kapısı İlanı",
@@ -380,7 +451,7 @@ public partial class MainForm : Form
             FlatStyle = FlatStyle.Flat,
             Cursor = Cursors.Hand
         };
-        _btnOpenKariyerKapisi.Click += (s, e) => OpenUrl(_selectedItem?.Record.DetailUrl);
+        _btnOpenKariyerKapisi.Click += (s, e) => OpenUrl(_selectedItem == null ? null : GetAnnouncementDetailUrl(_selectedItem.Record));
 
         _btnOpenEDevlet = new Button
         {
@@ -418,7 +489,9 @@ public partial class MainForm : Form
             ReadOnly = true,
             BackColor = Color.White,
             BorderStyle = BorderStyle.FixedSingle,
-            Font = new Font("Segoe UI", 9.5f)
+            Font = new Font("Segoe UI", 10.5f),
+            ScrollBars = RichTextBoxScrollBars.Vertical,
+            DetectUrls = false
         };
 
         rightPanel.Controls.Add(_rtbDetailContent);
@@ -745,21 +818,25 @@ public partial class MainForm : Form
                 _lblLastScanTime.Text = $"Son Başarılı Tarama: {lastScan.FinishedAt?.ToLocalTime():dd.MM.yyyy HH:mm}";
             }
 
-            _cachedItems.Clear();
+            var loadedItems = new List<AnnouncementDisplayItem>();
             foreach (var ann in announcements)
             {
                 evaluationsMap.TryGetValue(ann.Guid, out var evaluations);
                 evaluations ??= new List<EvaluationRecord>();
 
                 var positions = await _repository.GetPositionsByAnnouncementGuidAsync(ann.Guid);
+                var positionKeys = positions.Select(p => p.PositionKey).ToHashSet();
+                evaluations = evaluations.Where(e => positionKeys.Contains(e.PositionKey)).ToList();
 
                 var isEligible = evaluations.Any(e => e.Status == EligibilityStatus.Eligible.ToString());
                 var isNeedsReview = evaluations.Any(e => e.Status == EligibilityStatus.NeedsReview.ToString());
+                var hasUnevaluatedPositions = positions.Count == 0 ||
+                    positions.Any(p => !evaluations.Any(e => e.PositionKey == p.PositionKey));
 
                 var overallStatus = isEligible ? EligibilityStatus.Eligible :
-                                    (isNeedsReview ? EligibilityStatus.NeedsReview : EligibilityStatus.Ineligible);
+                                    (isNeedsReview || hasUnevaluatedPositions ? EligibilityStatus.NeedsReview : EligibilityStatus.Ineligible);
 
-                _cachedItems.Add(new AnnouncementDisplayItem
+                loadedItems.Add(new AnnouncementDisplayItem
                 {
                     Record = ann,
                     Evaluations = evaluations,
@@ -768,11 +845,14 @@ public partial class MainForm : Form
                 });
             }
 
+            _cachedItems = loadedItems;
+            _checkedAnnouncementGuids.IntersectWith(loadedItems.Select(item => item.Record.Guid));
             ApplyFilter();
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Veritabanından ilanlar yüklenirken hata oluştu.");
+            _lblStatus.Text = "❌ İlanlar yüklenemedi. Ayrıntılar için günlükleri kontrol edin.";
         }
     }
 
@@ -797,39 +877,75 @@ public partial class MainForm : Form
             return true;
         }).ToList();
 
-        _gridAnnouncements.Rows.Clear();
-        foreach (var item in filtered)
+        _isUpdatingAnnouncementRows = true;
+        try
         {
-            var statusText = item.Status switch
+            _gridAnnouncements.Rows.Clear();
+            foreach (var item in filtered)
             {
-                EligibilityStatus.Eligible => "✅ UYGUN",
-                EligibilityStatus.NeedsReview => "⚠️ İNCELE",
-                _ => "❌ UYGUN DEĞİL"
-            };
+                var statusText = item.Status switch
+                {
+                    EligibilityStatus.Eligible => "✅ UYGUN",
+                    EligibilityStatus.NeedsReview => "⚠️ İNCELE",
+                    _ => "❌ UYGUN DEĞİL"
+                };
 
-            var endStr = item.Record.EndDate?.ToString("dd.MM.yyyy HH:mm") ?? "Belirtilmemiş";
-            var rowIdx = _gridAnnouncements.Rows.Add(statusText, item.Record.InstitutionName, item.Record.Title, endStr);
-            _gridAnnouncements.Rows[rowIdx].Tag = item;
+                var endStr = item.Record.EndDate?.ToString("dd.MM.yyyy HH:mm") ?? "Belirtilmemiş";
+                var rowIdx = _gridAnnouncements.Rows.Add(_checkedAnnouncementGuids.Contains(item.Record.Guid), statusText, item.Record.InstitutionName, item.Record.Title, endStr);
+                _gridAnnouncements.Rows[rowIdx].Tag = item;
 
-            if (item.Status == EligibilityStatus.Eligible)
-            {
-                _gridAnnouncements.Rows[rowIdx].DefaultCellStyle.BackColor = Color.FromArgb(235, 255, 235);
+                if (item.Status == EligibilityStatus.Eligible)
+                {
+                    _gridAnnouncements.Rows[rowIdx].DefaultCellStyle.BackColor = Color.FromArgb(235, 255, 235);
+                }
+                else if (item.Status == EligibilityStatus.NeedsReview)
+                {
+                    _gridAnnouncements.Rows[rowIdx].DefaultCellStyle.BackColor = Color.FromArgb(255, 250, 230);
+                }
             }
-            else if (item.Status == EligibilityStatus.NeedsReview)
+
+            if (_gridAnnouncements.Rows.Count > 0)
             {
-                _gridAnnouncements.Rows[rowIdx].DefaultCellStyle.BackColor = Color.FromArgb(255, 250, 230);
+                // Force deselect first so SelectionChanged always fires even if row 0 was already selected
+                _gridAnnouncements.ClearSelection();
+                _gridAnnouncements.Rows[0].Selected = true;
+                _gridAnnouncements.CurrentCell = _gridAnnouncements.Rows[0].Cells[0];
+
+                // Also directly populate the detail panel in case SelectionChanged doesn't re-fire
+                var firstItem = _gridAnnouncements.Rows[0].Tag as AnnouncementDisplayItem;
+                if (firstItem != null)
+                    PopulateDetailPanel(firstItem);
+            }
+            else
+            {
+                ClearDetailPanel();
             }
         }
-
-        if (_gridAnnouncements.Rows.Count > 0)
+        finally
         {
-            _gridAnnouncements.Rows[0].Selected = true;
-        }
-        else
-        {
-            ClearDetailPanel();
+            _isUpdatingAnnouncementRows = false;
+            UpdateCheckedAnnouncements();
         }
     }
+
+    private void UpdateCheckedAnnouncements()
+    {
+        var count = _checkedAnnouncementGuids.Count;
+        var visibleCount = _gridAnnouncements.Rows.Cast<DataGridViewRow>()
+            .Count(row => row.Tag is AnnouncementDisplayItem item && _checkedAnnouncementGuids.Contains(item.Record.Guid));
+        _lblCheckedAnnouncements.Text = count == 0 ? "İlanları kutucuklarla seçin" :
+            $"{count} ilan seçili" + (count > visibleCount ? $" ({count - visibleCount} tanesi filtre dışında)" : "");
+        _btnOpenSelectedAnnouncements.Text = $"Seçili {count} ilana git";
+        _btnOpenSelectedAnnouncements.Visible = count > 1;
+    }
+
+    private static string GetAnnouncementDetailUrl(AnnouncementRecord record) =>
+        !string.IsNullOrWhiteSpace(record.DetailUrl) ? record.DetailUrl :
+            $"https://kariyerkapisi.gov.tr/IlanDetay?i={Uri.EscapeDataString(record.Guid)}";
+
+    private List<string> GetCheckedAnnouncementUrls() => _cachedItems
+        .Where(item => _checkedAnnouncementGuids.Contains(item.Record.Guid))
+        .Select(item => GetAnnouncementDetailUrl(item.Record)).Distinct().ToList();
 
     private void ClearDetailPanel()
     {
@@ -857,6 +973,11 @@ public partial class MainForm : Form
             return;
         }
 
+        PopulateDetailPanel(item);
+    }
+
+    private void PopulateDetailPanel(AnnouncementDisplayItem item)
+    {
         _selectedItem = item;
 
         _lblDetailInstitution.Text = item.Record.InstitutionName;
@@ -882,38 +1003,90 @@ public partial class MainForm : Form
             _lblDetailStatusBadge.BackColor = Color.FromArgb(220, 53, 69);
         }
 
-        var sb = new System.Text.StringBuilder();
-        sb.AppendLine($"🏛 KURUM: {item.Record.InstitutionName}");
+        _rtbDetailContent.Clear();
+        var textColor = _isDarkMode ? Color.FromArgb(230, 230, 230) : Color.FromArgb(35, 45, 55);
+        var headingColor = _isDarkMode ? Color.FromArgb(135, 190, 255) : Color.FromArgb(15, 65, 115);
         if (!string.IsNullOrWhiteSpace(item.Record.UnitName))
-            sb.AppendLine($"🏢 BİRİM: {item.Record.UnitName}");
-        sb.AppendLine($"📋 İLAN: {item.Record.Title}");
-        sb.AppendLine($"📅 SON BAŞVURU: {endStr}");
-        sb.AppendLine(new string('─', 50));
-        sb.AppendLine("KADRO VE DEĞERLENDİRME AYRINTILARI:");
-        sb.AppendLine();
+            AppendDetailText($"Birim: {item.Record.UnitName}\n\n", textColor);
+        AppendDetailText($"KADROLAR ({item.Positions.Count})\n\n", headingColor, bold: true);
 
         foreach (var pos in item.Positions)
         {
             var eval = item.Evaluations.FirstOrDefault(e => e.PositionKey == pos.PositionKey);
+            var statusText = eval?.Status switch
+            {
+                "Eligible" => "✅ Uygun",
+                "Ineligible" => "❌ Uygun değil",
+                "NeedsReview" => "⚠️ Kontrol gerekli",
+                _ => "⚠️ Henüz değerlendirilmedi"
+            };
+            var statusColor = eval?.Status switch
+            {
+                "Eligible" => _isDarkMode ? Color.LightGreen : Color.FromArgb(30, 125, 60),
+                "Ineligible" => _isDarkMode ? Color.Salmon : Color.FromArgb(180, 45, 45),
+                _ => _isDarkMode ? Color.Gold : Color.FromArgb(145, 95, 0)
+            };
+            AppendDetailText(pos.Title + "\n\n", headingColor, bold: true, size: 12);
+            AppendDetailText(statusText + "\n\n", statusColor, bold: true);
+            if (!string.IsNullOrWhiteSpace(pos.Unvan) && pos.Unvan != pos.Title)
+                AppendDetailText($"Unvan: {pos.Unvan}\n", textColor);
+            AppendDetailText($"Şehir: {(string.IsNullOrWhiteSpace(pos.Cities) ? "Belirtilmemiş" : pos.Cities)}\n", textColor);
+            AppendDetailText($"Toplam kontenjan: {pos.Quota}\n\n", textColor);
 
-            var statusEmoji = eval?.Status == EligibilityStatus.Eligible.ToString() ? "✅" :
-                              (eval?.Status == EligibilityStatus.NeedsReview.ToString() ? "⚠️" : "❌");
-
-            sb.AppendLine($"{statusEmoji} {pos.Title} (Unvan: {pos.Unvan})");
-            sb.AppendLine($"   • Şehir / Kontenjan: {pos.Cities} (Toplam: {pos.Quota})");
             if (eval != null)
             {
-                sb.AppendLine($"   • Durum: {eval.Status}");
-                sb.AppendLine($"   • Gerekçe: {eval.SummaryReason}");
+                AppendDetailText("Değerlendirme gerekçeleri\n\n", textColor, bold: true);
+                PositionEvaluation? details = null;
+                if (!string.IsNullOrWhiteSpace(eval.DetailsJson))
+                {
+                    try { details = JsonSerializer.Deserialize<PositionEvaluation>(eval.DetailsJson); }
+                    catch (JsonException ex) { _logger.LogWarning(ex, "Kadro değerlendirme ayrıntısı okunamadı: {Key}", pos.PositionKey); }
+                }
+                if (details?.Conditions is { Count: > 0 })
+                {
+                    foreach (var condition in details.Conditions)
+                    {
+                        var conditionStatus = condition.Status switch
+                        {
+                            ConditionStatus.Satisfied => "Karşılanıyor",
+                            ConditionStatus.Unsatisfied => "Karşılanmıyor",
+                            _ => "Kontrol gerekli"
+                        };
+                        AppendDetailText($"• {condition.CriterionName} — {conditionStatus}\n", textColor, bold: true);
+                        AppendDetailText(condition.Explanation + "\n\n", textColor, indent: 18);
+                    }
+                }
+                else
+                {
+                    foreach (var reason in eval.SummaryReason.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                        AppendDetailText($"• {reason}\n\n", textColor, indent: 12);
+                }
             }
-            else
-            {
-                sb.AppendLine("   • Durum: Henüz değerlendirilmedi");
-            }
-            sb.AppendLine();
+            AppendDetailText("────────────────────────\n\n", headingColor);
         }
 
-        _rtbDetailContent.Text = sb.ToString();
+        if (item.Positions.Count == 0)
+            AppendDetailText("Kadro bilgisi bulunamadı. Ayrıntılar için ilan metnini kontrol edin.\n\n", textColor);
+
+        if (!string.IsNullOrWhiteSpace(item.Record.RawGeneralText))
+        {
+            AppendDetailText("İLAN METNİ\n\n", headingColor, bold: true, size: 12);
+            AppendDetailText(new DocumentReader().CleanAndNormalizeText(item.Record.RawGeneralText), textColor);
+        }
+        _rtbDetailContent.Select(0, 0);
+        _rtbDetailContent.ScrollToCaret();
+    }
+
+    private void AppendDetailText(string text, Color color, bool bold = false, float size = 10.5f, int indent = 0)
+    {
+        _rtbDetailContent.Select(_rtbDetailContent.TextLength, 0);
+        using var font = new Font("Segoe UI", size, bold ? FontStyle.Bold : FontStyle.Regular);
+        _rtbDetailContent.SelectionFont = font;
+        _rtbDetailContent.SelectionColor = color;
+        _rtbDetailContent.SelectionIndent = 12 + indent;
+        _rtbDetailContent.SelectionRightIndent = 12;
+        _rtbDetailContent.SelectionHangingIndent = 0;
+        _rtbDetailContent.AppendText(text);
     }
 
     private void OpenUrl(string? url)
@@ -947,22 +1120,12 @@ public partial class MainForm : Form
 
     private void GridAnnouncements_CellDoubleClick(object? sender, DataGridViewCellEventArgs e)
     {
-        if (e.RowIndex < 0) return;
+        if (e.RowIndex < 0 || e.ColumnIndex == _gridAnnouncements.Columns["Checked"]!.Index) return;
 
         var item = _gridAnnouncements.Rows[e.RowIndex].Tag as AnnouncementDisplayItem;
         if (item == null) return;
 
-        var detailUrl = item.Record.DetailUrl;
-        if (!string.IsNullOrWhiteSpace(detailUrl))
-        {
-            OpenUrl(detailUrl);
-        }
-        else
-        {
-            // Fallback: construct the URL from the GUID
-            var fallbackUrl = $"https://kariyerkapisi.gov.tr/IlanDetay?i={item.Record.Guid}";
-            OpenUrl(fallbackUrl);
-        }
+        OpenUrl(GetAnnouncementDetailUrl(item.Record));
     }
 
     private void ToggleTheme()
@@ -1092,6 +1255,7 @@ public partial class MainForm : Form
             detailParent = detailParent.Parent;
         }
 
+        if (_selectedItem != null) PopulateDetailPanel(_selectedItem);
         Invalidate(true);
     }
 

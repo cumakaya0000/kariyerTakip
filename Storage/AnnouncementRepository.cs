@@ -105,12 +105,6 @@ public class AnnouncementRepository : IAnnouncementRepository
                 ErrorMessage TEXT
             );
 
-            CREATE INDEX IF NOT EXISTS IX_Outbox_Status ON NotificationOutbox(Status);
-            CREATE INDEX IF NOT EXISTS IX_Outbox_Dedup ON NotificationOutbox(DeduplicationKey);
-            CREATE INDEX IF NOT EXISTS IX_Positions_Guid ON Positions(AnnouncementGuid);
-            CREATE INDEX IF NOT EXISTS IX_Positions_Key ON Positions(PositionKey);
-            CREATE INDEX IF NOT EXISTS IX_Evaluations_Guid_Key ON Evaluations(AnnouncementGuid, PositionKey);
-            CREATE INDEX IF NOT EXISTS IX_Evaluations_Profile ON Evaluations(ProfileHash);
         ";
 
         using var cmd = conn.CreateCommand();
@@ -128,19 +122,58 @@ public class AnnouncementRepository : IAnnouncementRepository
         await EnsureColumnExistsAsync(conn, "ScanRuns", "ProcessedCount", "INTEGER NOT NULL DEFAULT 0");
         await EnsureColumnExistsAsync(conn, "ScanRuns", "FailedCount", "INTEGER NOT NULL DEFAULT 0");
         await MigrateLegacyScanRunsAsync(conn);
-        // Backfill missing PositionKey for any legacy positions
-        // Ensure PositionKey has a unique constraint for UPSERT operations
-        using var idxCmd = conn.CreateCommand();
-        idxCmd.CommandText = "CREATE UNIQUE INDEX IF NOT EXISTS IX_Positions_Key_Unique ON Positions(PositionKey);";
-        await idxCmd.ExecuteNonQueryAsync();
         using var backfillCmd = conn.CreateCommand();
         backfillCmd.CommandText = @"
             UPDATE Positions SET PositionKey = AnnouncementGuid || '_pos_' || Id WHERE PositionKey IS NULL OR PositionKey = '';
-            UPDATE NotificationOutbox SET DeduplicationKey = AnnouncementGuid || ':' || NotificationType || ':' || Id WHERE DeduplicationKey IS NULL OR DeduplicationKey = '';
         ";
         await backfillCmd.ExecuteNonQueryAsync();
+        await MigrateLegacyOutboxAsync(conn);
+
+        // Create indexes after legacy columns and keys have been migrated.
+        using var idxCmd = conn.CreateCommand();
+        idxCmd.CommandText = @"
+            CREATE UNIQUE INDEX IF NOT EXISTS IX_Positions_Key_Unique ON Positions(PositionKey);
+            CREATE INDEX IF NOT EXISTS IX_Outbox_Status ON NotificationOutbox(Status);
+            CREATE INDEX IF NOT EXISTS IX_Outbox_Dedup ON NotificationOutbox(DeduplicationKey);
+            CREATE INDEX IF NOT EXISTS IX_Positions_Guid ON Positions(AnnouncementGuid);
+            CREATE INDEX IF NOT EXISTS IX_Positions_Key ON Positions(PositionKey);
+            CREATE INDEX IF NOT EXISTS IX_Evaluations_Guid_Key ON Evaluations(AnnouncementGuid, PositionKey);
+            CREATE INDEX IF NOT EXISTS IX_Evaluations_Profile ON Evaluations(ProfileHash);
+        ";
+        await idxCmd.ExecuteNonQueryAsync();
 
         _logger.LogInformation("SQLite veritabanı şeması doğrulandı.");
+    }
+
+    private static async Task MigrateLegacyOutboxAsync(SqliteConnection conn)
+    {
+        using var tx = conn.BeginTransaction();
+        using var cmd = conn.CreateCommand();
+        cmd.Transaction = tx;
+        cmd.CommandText = @"
+            UPDATE NotificationOutbox
+            SET DeduplicationKey = AnnouncementGuid || ':' || NotificationType || ':' || Id
+            WHERE DeduplicationKey IS NULL OR DeduplicationKey = '';
+
+            -- Keep a sent record as the canonical key so it cannot be sent again.
+            -- Preserve duplicate history under separate keys and stop duplicate retries.
+            WITH Ranked AS (
+                SELECT Id, ROW_NUMBER() OVER (
+                    PARTITION BY DeduplicationKey
+                    ORDER BY CASE WHEN Status = 'Sent' THEN 0 ELSE 1 END, Id
+                ) AS Rank
+                FROM NotificationOutbox
+            )
+            UPDATE NotificationOutbox
+            SET DeduplicationKey = 'legacy-duplicate:' || Id || ':' || hex(randomblob(16)),
+                Status = CASE WHEN Status IN ('Pending', 'Failed') THEN 'Disabled' ELSE Status END
+            WHERE Id IN (SELECT Id FROM Ranked WHERE Rank > 1);
+
+            CREATE UNIQUE INDEX IF NOT EXISTS IX_Outbox_Dedup_Unique
+                ON NotificationOutbox(DeduplicationKey);
+        ";
+        await cmd.ExecuteNonQueryAsync();
+        await tx.CommitAsync();
     }
 
     private static async Task EnsureColumnExistsAsync(SqliteConnection conn, string table, string column, string columnType)
