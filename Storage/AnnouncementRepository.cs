@@ -127,8 +127,12 @@ public class AnnouncementRepository : IAnnouncementRepository
         await EnsureColumnExistsAsync(conn, "ScanRuns", "Status", "TEXT NOT NULL DEFAULT 'Success'");
         await EnsureColumnExistsAsync(conn, "ScanRuns", "ProcessedCount", "INTEGER NOT NULL DEFAULT 0");
         await EnsureColumnExistsAsync(conn, "ScanRuns", "FailedCount", "INTEGER NOT NULL DEFAULT 0");
-
+        await MigrateLegacyScanRunsAsync(conn);
         // Backfill missing PositionKey for any legacy positions
+        // Ensure PositionKey has a unique constraint for UPSERT operations
+        using var idxCmd = conn.CreateCommand();
+        idxCmd.CommandText = "CREATE UNIQUE INDEX IF NOT EXISTS IX_Positions_Key_Unique ON Positions(PositionKey);";
+        await idxCmd.ExecuteNonQueryAsync();
         using var backfillCmd = conn.CreateCommand();
         backfillCmd.CommandText = @"
             UPDATE Positions SET PositionKey = AnnouncementGuid || '_pos_' || Id WHERE PositionKey IS NULL OR PositionKey = '';
@@ -162,6 +166,70 @@ public class AnnouncementRepository : IAnnouncementRepository
             alterCmd.CommandText = $"ALTER TABLE {table} ADD COLUMN {column} {columnType};";
             await alterCmd.ExecuteNonQueryAsync();
         }
+    }
+    // Migration for legacy ScanRuns schema (removes old Success column if present)
+    private static async Task MigrateLegacyScanRunsAsync(SqliteConnection conn)
+    {
+        // Check if the old 'Success' column exists
+        using var checkCmd = conn.CreateCommand();
+        checkCmd.CommandText = "PRAGMA table_info(ScanRuns);";
+        using var reader = await checkCmd.ExecuteReaderAsync();
+        var hasSuccess = false;
+        while (await reader.ReadAsync())
+        {
+            var name = reader.GetString(1);
+            if (name.Equals("Success", StringComparison.OrdinalIgnoreCase))
+            {
+                hasSuccess = true;
+                break;
+            }
+        }
+        reader.Close();
+
+        if (!hasSuccess)
+            return; // nothing to migrate
+
+        // Perform migration: rebuild table without the Success column
+        using var tx = conn.BeginTransaction();
+        // Create new table with correct schema
+        var createCmd = conn.CreateCommand();
+        createCmd.CommandText = @"
+            CREATE TABLE ScanRuns_new (
+                Id INTEGER PRIMARY KEY AUTOINCREMENT,
+                StartedAt TEXT NOT NULL,
+                FinishedAt TEXT,
+                Status TEXT NOT NULL DEFAULT 'Running',
+                TotalAnnouncementsFound INTEGER NOT NULL DEFAULT 0,
+                ProcessedCount INTEGER NOT NULL DEFAULT 0,
+                FailedCount INTEGER NOT NULL DEFAULT 0,
+                EligibleCount INTEGER NOT NULL DEFAULT 0,
+                NeedsReviewCount INTEGER NOT NULL DEFAULT 0,
+                ErrorMessage TEXT
+            );";
+        await createCmd.ExecuteNonQueryAsync();
+
+        // Copy data (ignore the old Success column)
+        var copyCmd = conn.CreateCommand();
+        copyCmd.CommandText = @"
+            INSERT INTO ScanRuns_new (Id, StartedAt, FinishedAt, Status,
+                TotalAnnouncementsFound, ProcessedCount, FailedCount,
+                EligibleCount, NeedsReviewCount, ErrorMessage)
+            SELECT Id, StartedAt, FinishedAt, Status,
+                TotalAnnouncementsFound, ProcessedCount, FailedCount,
+                EligibleCount, NeedsReviewCount, ErrorMessage
+            FROM ScanRuns;";
+        await copyCmd.ExecuteNonQueryAsync();
+
+        // Drop old table and rename new
+        var dropCmd = conn.CreateCommand();
+        dropCmd.CommandText = "DROP TABLE ScanRuns;";
+        await dropCmd.ExecuteNonQueryAsync();
+
+        var renameCmd = conn.CreateCommand();
+        renameCmd.CommandText = "ALTER TABLE ScanRuns_new RENAME TO ScanRuns;";
+        await renameCmd.ExecuteNonQueryAsync();
+
+        await tx.CommitAsync();
     }
 
     public async Task<List<AnnouncementRecord>> GetAllAnnouncementsAsync(bool activeOnly = false)
