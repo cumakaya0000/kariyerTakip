@@ -26,6 +26,7 @@ jobs:
         with:
           name: KariyerTakip-win-x64
           path: |
+            artifacts/publish/win-x64/KariyerTakip.exe
             artifacts/KariyerTakip-win-x64.zip
             artifacts/KariyerTakip-win-x64.zip.sha256
             artifacts/KariyerTakip-Kurulum.exe
@@ -46,4 +47,4 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.ref_name }}
           RELEASE_REPO: ${{ github.repository }}
-        run: gh release create "$env:RELEASE_TAG" KariyerTakip-Kurulum.exe KariyerTakip-Kurulum.exe.sha256 KariyerTakip-win-x64.zip KariyerTakip-win-x64.zip.sha256 --repo "$env:RELEASE_REPO" --notes-file CHANGELOG.md
+        run: gh release create "$env:RELEASE_TAG" KariyerTakip.exe KariyerTakip-Kurulum.exe KariyerTakip-Kurulum.exe.sha256 KariyerTakip-win-x64.zip KariyerTakip-win-x64.zip.sha256 --repo "$env:RELEASE_REPO" --notes-file CHANGELOG.md
