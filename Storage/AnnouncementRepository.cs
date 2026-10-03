@@ -116,7 +116,52 @@ public class AnnouncementRepository : IAnnouncementRepository
         using var cmd = conn.CreateCommand();
         cmd.CommandText = ddl;
         await cmd.ExecuteNonQueryAsync();
+
+        // Auto-migration for existing databases: Ensure newly added columns exist
+        await EnsureColumnExistsAsync(conn, "Announcements", "RawGeneralText", "TEXT");
+        await EnsureColumnExistsAsync(conn, "Announcements", "LastScanStatus", "TEXT NOT NULL DEFAULT 'Success'");
+        await EnsureColumnExistsAsync(conn, "Positions", "PositionKey", "TEXT");
+        await EnsureColumnExistsAsync(conn, "Positions", "UpdatedAt", "TEXT NOT NULL DEFAULT '2026-01-01'");
+        await EnsureColumnExistsAsync(conn, "Evaluations", "PositionKey", "TEXT NOT NULL DEFAULT ''");
+        await EnsureColumnExistsAsync(conn, "NotificationOutbox", "DeduplicationKey", "TEXT");
+        await EnsureColumnExistsAsync(conn, "ScanRuns", "Status", "TEXT NOT NULL DEFAULT 'Success'");
+        await EnsureColumnExistsAsync(conn, "ScanRuns", "ProcessedCount", "INTEGER NOT NULL DEFAULT 0");
+        await EnsureColumnExistsAsync(conn, "ScanRuns", "FailedCount", "INTEGER NOT NULL DEFAULT 0");
+
+        // Backfill missing PositionKey for any legacy positions
+        using var backfillCmd = conn.CreateCommand();
+        backfillCmd.CommandText = @"
+            UPDATE Positions SET PositionKey = AnnouncementGuid || '_pos_' || Id WHERE PositionKey IS NULL OR PositionKey = '';
+            UPDATE NotificationOutbox SET DeduplicationKey = AnnouncementGuid || ':' || NotificationType || ':' || Id WHERE DeduplicationKey IS NULL OR DeduplicationKey = '';
+        ";
+        await backfillCmd.ExecuteNonQueryAsync();
+
         _logger.LogInformation("SQLite veritabanı şeması doğrulandı.");
+    }
+
+    private static async Task EnsureColumnExistsAsync(SqliteConnection conn, string table, string column, string columnType)
+    {
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = $"PRAGMA table_info({table});";
+        using var reader = await cmd.ExecuteReaderAsync();
+        var exists = false;
+        while (await reader.ReadAsync())
+        {
+            var name = reader.GetString(1);
+            if (name.Equals(column, StringComparison.OrdinalIgnoreCase))
+            {
+                exists = true;
+                break;
+            }
+        }
+        reader.Close();
+
+        if (!exists)
+        {
+            using var alterCmd = conn.CreateCommand();
+            alterCmd.CommandText = $"ALTER TABLE {table} ADD COLUMN {column} {columnType};";
+            await alterCmd.ExecuteNonQueryAsync();
+        }
     }
 
     public async Task<List<AnnouncementRecord>> GetAllAnnouncementsAsync(bool activeOnly = false)
