@@ -127,6 +127,8 @@ public class AnnouncementRepository : IAnnouncementRepository
         await EnsureColumnExistsAsync(conn, "Announcements", "LastScanStatus", "TEXT NOT NULL DEFAULT 'Success'");
         await EnsureColumnExistsAsync(conn, "Announcements", "ApplicationStatus", "TEXT NOT NULL DEFAULT 'None'");
         await EnsureColumnExistsAsync(conn, "Announcements", "ApplicationNotes", "TEXT NOT NULL DEFAULT ''");
+        await EnsureColumnExistsAsync(conn, "Announcements", "Source", "TEXT NOT NULL DEFAULT 'CareerGate'");
+        await EnsureColumnExistsAsync(conn, "Announcements", "GeneralConditionsText", "TEXT NOT NULL DEFAULT ''");
         await EnsureColumnExistsAsync(conn, "Positions", "PositionKey", "TEXT");
         await EnsureColumnExistsAsync(conn, "Positions", "UpdatedAt", "TEXT NOT NULL DEFAULT '2026-01-01'");
         await EnsureColumnExistsAsync(conn, "Positions", "IsCurrent", "INTEGER NOT NULL DEFAULT 1");
@@ -289,7 +291,7 @@ public class AnnouncementRepository : IAnnouncementRepository
 
         using var cmd = conn.CreateCommand();
         cmd.CommandText = @"SELECT Guid, InstitutionName, UnitName, Title, AnnouncementType, DetailUrl, ApplicationUrl,
-                                   StartDate, EndDate, RawGeneralText, RawContentHash, FirstSeenAt, LastCheckedAt, IsActive, LastScanStatus, ApplicationStatus, ApplicationNotes
+                                   StartDate, EndDate, RawGeneralText, RawContentHash, FirstSeenAt, LastCheckedAt, IsActive, LastScanStatus, ApplicationStatus, ApplicationNotes, Source, GeneralConditionsText
                             FROM Announcements" + (activeOnly ? " WHERE IsActive = 1" : "") + " ORDER BY EndDate ASC";
 
         using var reader = await cmd.ExecuteReaderAsync();
@@ -307,7 +309,7 @@ public class AnnouncementRepository : IAnnouncementRepository
 
         using var cmd = conn.CreateCommand();
         cmd.CommandText = @"SELECT Guid, InstitutionName, UnitName, Title, AnnouncementType, DetailUrl, ApplicationUrl,
-                                   StartDate, EndDate, RawGeneralText, RawContentHash, FirstSeenAt, LastCheckedAt, IsActive, LastScanStatus, ApplicationStatus, ApplicationNotes
+                                   StartDate, EndDate, RawGeneralText, RawContentHash, FirstSeenAt, LastCheckedAt, IsActive, LastScanStatus, ApplicationStatus, ApplicationNotes, Source, GeneralConditionsText
                             FROM Announcements WHERE Guid = @Guid";
         cmd.Parameters.AddWithValue("@Guid", guid);
 
@@ -329,10 +331,10 @@ public class AnnouncementRepository : IAnnouncementRepository
         cmd.CommandText = @"
             INSERT INTO Announcements (
                 Guid, InstitutionName, UnitName, Title, AnnouncementType, DetailUrl, ApplicationUrl,
-                StartDate, EndDate, RawGeneralText, RawContentHash, FirstSeenAt, LastCheckedAt, IsActive, LastScanStatus
+                StartDate, EndDate, RawGeneralText, RawContentHash, FirstSeenAt, LastCheckedAt, IsActive, LastScanStatus, Source, GeneralConditionsText
             ) VALUES (
                 @Guid, @InstitutionName, @UnitName, @Title, @AnnouncementType, @DetailUrl, @ApplicationUrl,
-                @StartDate, @EndDate, @RawGeneralText, @RawContentHash, @FirstSeenAt, @LastCheckedAt, @IsActive, @LastScanStatus
+                @StartDate, @EndDate, @RawGeneralText, @RawContentHash, @FirstSeenAt, @LastCheckedAt, @IsActive, @LastScanStatus, @Source, @GeneralConditionsText
             )
             ON CONFLICT(Guid) DO UPDATE SET
                 InstitutionName = excluded.InstitutionName,
@@ -344,13 +346,17 @@ public class AnnouncementRepository : IAnnouncementRepository
                 StartDate = excluded.StartDate,
                 EndDate = excluded.EndDate,
                 RawGeneralText = excluded.RawGeneralText,
+                GeneralConditionsText = excluded.GeneralConditionsText,
                 RawContentHash = excluded.RawContentHash,
                 LastCheckedAt = excluded.LastCheckedAt,
                 IsActive = excluded.IsActive,
-                LastScanStatus = excluded.LastScanStatus;
+                LastScanStatus = excluded.LastScanStatus,
+                Source = excluded.Source;
         ";
 
         cmd.Parameters.AddWithValue("@Guid", record.Guid);
+        cmd.Parameters.AddWithValue("@Source", record.Source.ToString());
+        cmd.Parameters.AddWithValue("@GeneralConditionsText", record.GeneralConditionsText);
         cmd.Parameters.AddWithValue("@InstitutionName", record.InstitutionName);
         cmd.Parameters.AddWithValue("@UnitName", (object?)record.UnitName ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@Title", record.Title);
@@ -781,7 +787,9 @@ public class AnnouncementRepository : IAnnouncementRepository
             IsActive = reader.GetInt32(13) == 1,
             LastScanStatus = reader.IsDBNull(14) ? "Success" : reader.GetString(14),
             ApplicationStatus = Enum.TryParse<ApplicationStatus>(reader.GetString(15), out var status) ? status : ApplicationStatus.None,
-            ApplicationNotes = reader.GetString(16)
+            ApplicationNotes = reader.GetString(16),
+            Source = Enum.TryParse<AnnouncementSource>(reader.GetString(17), out var source) ? source : AnnouncementSource.CareerGate,
+            GeneralConditionsText = reader.GetString(18)
         };
     }
 

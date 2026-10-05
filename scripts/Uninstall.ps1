@@ -34,7 +34,7 @@ try {
     foreach ($taskRoot in ($taskRoots | Select-Object -Unique)) {
         if (-not (Test-Path -LiteralPath $taskRoot)) { continue }
         if ((Get-Item -LiteralPath $taskRoot -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) { throw "Veri klasörü bağlantı olamaz: $taskRoot" }
-        foreach ($taskName in @('kariyertakip.db','kariyertakip.db-shm','kariyertakip.db-wal','telegram.secret','profiles.json','profile.json','appsettings.json','api-health.json','logs','feedback-fixtures')) {
+        foreach ($taskName in @('kariyertakip.db','kariyertakip.db-shm','kariyertakip.db-wal','telegram.secret','profiles.json','profile.json','appsettings.json','api-health.json','logs','feedback-fixtures','documents')) {
             Remove-TaskChild $taskRoot $taskName
         }
         Get-ChildItem -LiteralPath $taskRoot -File -Force | Where-Object { $_.Name -match '^(appsettings|profile|profiles|api-health)\.json\.bak(\..+)?$' } | ForEach-Object { Remove-TaskChild $taskRoot $_.Name }

@@ -261,7 +261,12 @@ public class RequirementExtractor
             var lClause = clause.ToLower(new CultureInfo("tr-TR"));
             if (lClause.Contains("askerlik") || lClause.Contains("askerlikle ilişiği"))
             {
-                req.MilitaryCondition = new ExtractedCondition<string>(clause.Trim(), clause);
+                // A later document checklist must not replace an actual military eligibility clause.
+                var isRequirement = Regex.IsMatch(lClause, @"yapmış|yapmak|muaf|ertelen|tecil|ilişiği|ilgisi bulunmamak");
+                var existingIsRequirement = req.MilitaryCondition != null && Regex.IsMatch(
+                    req.MilitaryCondition.Value.ToLower(new CultureInfo("tr-TR")), @"yapmış|yapmak|muaf|ertelen|tecil|ilişiği|ilgisi bulunmamak");
+                if (isRequirement || !existingIsRequirement)
+                    req.MilitaryCondition = new ExtractedCondition<string>(clause.Trim(), clause);
             }
         }
 

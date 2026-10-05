@@ -1,5 +1,22 @@
 # Değişiklikler
 
+## Yerel geliştirme — 2026-10-05
+
+- İlan listesine başvuru durumu ve son tarih filtreleri, Türkçe kurum/unvan/şehir araması ve sütun başlıklarından sıralama eklendi.
+- Kalan süre ve kadro sayısı sütunları, yaklaşan son tarih vurgusu, liste özeti ve sağ tıkla sütun görünürlüğü eklendi.
+- Görünen ilanları topluca seçme, seçimleri temizleme ve seçili ilanları UTF-8 CSV dosyasına aktarma eklendi; seçimler filtreleme/sıralamada korunur.
+- Kamu İlan sekmesine SBB ana sayfasını açan ayrı site düğmesi eklendi.
+- SBB ilanını açarken 404 veren oturuma bağlı URL yerine indirilen resmî PDF açılır; eski kayıtların belgesi güncel bağlantıyla indirilir.
+- PDF düğmesi, çift tıklama ve toplu açma aynı belge akışını kullanır. Telegram'da SBB listesi/arşivi bağlantısı gösterilir.
+
+- Kamu İlan (SBB) ana sayfası taramaya eklendi; Kariyer Kapısı ve Kamu İlan ayrı sekmelerde gösterilir.
+- Kaynak bilgisi veritabanında ve Telegram mesajlarında saklanır. Mevcut ilanlar Kariyer Kapısı olarak korunur.
+- SBB bağlantı kodları değişse de ilan kimliği ve başvuru notları korunur; bir kaynağın erişim hatası diğer kaynağın taramasını durdurmaz.
+- SBB PDF belgeleri oturum ve ana sayfa referansıyla okunur; tablolardaki kadro şartları ayrı ayrı profille değerlendirilir.
+- PDF metni, genel şartlar ve açıkça belirtilen son başvuru saati önbelleğe alınır; okuma hatasında korunur.
+- Ayrıştırılamayan veya görüntü PDF'leri açık kontrol gerekçesiyle gösterilir; OCR bu sürümde yoktur.
+- Gerçek SBB sayfası, kaynak ayrımı, başvuru notlarının korunması ve kısmi tarama için regresyon testleri eklendi.
+
 ## Yerel geliştirme — 2026-10-04
 
 - KT simgesi exe, ana pencere, sistem tepsisi ve kısayollara eklendi.

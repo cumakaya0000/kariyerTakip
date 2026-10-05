@@ -1,0 +1,3 @@
+Kaynak: https://kamuilan.sbb.gov.tr/ — 05.10.2026 tarihinde herkese açık ana sayfadaki `nav2` ilan listesinden alınmıştır. Başlıklar, tarihler ve bağlantılar dışında profil veya kimlik bilgisi içermez. Bağlantılardaki şifreli kodlar her sayfa okumasında değişir; test canlı ağ isteği yapmaz.
+
+`batman-2026-10-05.pdf`: aynı kaynaktaki Batman Üniversitesi “15 sözleşmeli personel” ilanının 5 sayfalık resmî PDF'si (2026-1). 7 ilan kodu, toplam 15 kontenjan, farklı mezuniyet/KPSS/ehliyet şartları ve 19.10.2026 saat 13:00 son başvuru saati içerir. Kadro satırlarının birbirine karışmaması ve tablonun ikinci sayfaya devam etmesi için regresyon örneğidir. Kişisel profil veya başvuru verisi içermez.

@@ -20,6 +20,8 @@
   <ItemGroup>
     <ProjectReference Include="..\..\KariyerTakip.csproj" />
     <None Update="Fixtures\**\*.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Update="Fixtures\**\*.html" CopyToOutputDirectory="PreserveNewest" />
+    <None Update="Fixtures\**\*.pdf" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

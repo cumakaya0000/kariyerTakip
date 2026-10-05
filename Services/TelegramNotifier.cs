@@ -140,6 +140,7 @@ public class TelegramNotifier
     {
         var sb = new System.Text.StringBuilder();
         sb.AppendLine(notificationHeader);
+        sb.AppendLine($"🌐 <b>Kaynak:</b> {HtmlEncode(announcement.Source.DisplayName())}");
         sb.AppendLine("Otomatik değerlendirmedir; başvurudan önce resmî ilan metnini kontrol edin.");
         sb.AppendLine("━━━━━━━━━━━━━━━━━━━━");
         sb.AppendLine($"🏛 <b>Kurum:</b> {HtmlEncode(announcement.InstitutionName)}");
@@ -186,9 +187,14 @@ public class TelegramNotifier
         sb.AppendLine();
 
         sb.AppendLine("🔗 <b>Bağlantılar:</b>");
-        if (IsValidUrl(announcement.DetailUrl))
+        if (announcement.Source == AnnouncementSource.KamuIlan)
         {
-            sb.AppendLine($"   • <a href=\"{HtmlAttributeEncode(announcement.DetailUrl)}\">Kariyer Kapısı İlan Detayı</a>");
+            sb.AppendLine($"   • <a href=\"{KamuIlanClient.BaseUrl}#section3\">Kamu İlan (SBB) listesi / arşivi</a>");
+            sb.AppendLine("   • İlanın PDF'sini KariyerTakip uygulamasında açabilirsiniz.");
+        }
+        else if (IsValidUrl(announcement.DetailUrl))
+        {
+            sb.AppendLine($"   • <a href=\"{HtmlAttributeEncode(announcement.DetailUrl)}\">{HtmlEncode(announcement.Source.DisplayName())} İlan Detayı</a>");
         }
         if (IsValidUrl(announcement.ApplicationUrl))
         {

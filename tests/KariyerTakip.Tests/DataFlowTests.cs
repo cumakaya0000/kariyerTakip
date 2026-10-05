@@ -14,8 +14,51 @@ using Xunit;
 
 namespace KariyerTakip.Tests;
 
+[Collection("ScanCoordinator")]
 public class DataFlowTests
 {
+    [Fact]
+    public void SourceTabs_ShowOnlyTheirOwnAnnouncements_AndClearBulkSelection()
+    {
+        Exception? failure = null;
+        var thread = new Thread(() =>
+        {
+            try
+            {
+                using var fixture = new Fixture();
+                fixture.SeedAsync().GetAwaiter().GetResult();
+                fixture.Repository.UpsertAnnouncementAsync(new AnnouncementRecord
+                {
+                    Guid = "sbb:test", Source = AnnouncementSource.KamuIlan,
+                    InstitutionName = "SBB Kurum", Title = "Kamu İlan Başlığı",
+                    DetailUrl = "https://kamuilan.sbb.gov.tr/ilanDetay.aspx?kod=test"
+                }).GetAwaiter().GetResult();
+                using var services = new ServiceCollection().AddSingleton(new ProfileStore(
+                    Path.Combine(Path.GetTempPath(), Guid.NewGuid() + ".json"))).BuildServiceProvider();
+                using var form = new MainForm(services, fixture.Coordinator, fixture.Repository,
+                    fixture.Notifier, new ChangeDetector(), fixture.Profile, fixture.Config, NullLogger<MainForm>.Instance);
+                InvokeLoad(form);
+                var tabs = Field<TabControl>(form, "_tabControl");
+                _ = tabs.Handle;
+                var grid = Field<DataGridView>(form, "_gridAnnouncements");
+                Assert.Equal("Test Kurum", Assert.Single(grid.Rows.Cast<DataGridViewRow>()).Cells["Institution"].Value);
+                grid.Rows[0].Cells["Checked"].Value = true;
+                tabs.SelectedIndex = 1;
+                Assert.Equal("SBB Kurum", Assert.Single(grid.Rows.Cast<DataGridViewRow>()).Cells["Institution"].Value);
+                Assert.Empty(Field<HashSet<string>>(form, "_checkedAnnouncementGuids"));
+                Assert.Contains("Kamu İlan", Field<Button>(form, "_btnOpenKariyerKapisi").Text);
+                Assert.False(Field<Button>(form, "_btnOpenEDevlet").Enabled);
+                tabs.SelectedIndex = 0;
+                Assert.Equal("Test Kurum", Assert.Single(grid.Rows.Cast<DataGridViewRow>()).Cells["Institution"].Value);
+            }
+            catch (Exception ex) { failure = ex; }
+        });
+        thread.SetApartmentState(ApartmentState.STA);
+        thread.Start();
+        Assert.True(thread.Join(TimeSpan.FromSeconds(30)));
+        if (failure != null) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
+    }
+
     [Fact]
     public async Task FailedPositionsRequest_PreservesCachedKeyCityAndQuota()
     {
@@ -134,6 +177,11 @@ public class DataFlowTests
                 var grid = Field<DataGridView>(form, "_gridAnnouncements");
                 var button = Field<Button>(form, "_btnOpenSelectedAnnouncements");
                 var content = Field<RichTextBox>(form, "_rtbDetailContent");
+                var detailRow = grid.Rows.Cast<DataGridViewRow>().Single(row =>
+                    row.Tag is AnnouncementDisplayItem item && item.Record.Guid == "test-ann");
+                grid.ClearSelection();
+                detailRow.Selected = true;
+                grid.CurrentCell = detailRow.Cells["Title"];
                 Assert.Contains("Öğrenim Düzeyi / Bölüm — Kontrol gerekli", content.Text);
                 Assert.Contains("Mesleki Tecrübe — Kontrol gerekli", content.Text);
                 Assert.DoesNotContain("NeedsReview", content.Text);
@@ -152,25 +200,6 @@ public class DataFlowTests
                 Assert.Equal(2, urls.Count);
                 Assert.Contains("https://example.test/second", urls);
                 Assert.Contains("https://kariyerkapisi.gov.tr/IlanDetay?i=test-ann", urls);
-                var previewPath = Environment.GetEnvironmentVariable("KARIYERTAKIP_TEST_PREVIEW_PATH");
-                if (!string.IsNullOrWhiteSpace(previewPath))
-                {
-                    form.Size = new System.Drawing.Size(1400, 900);
-                    form.PerformLayout();
-                    using var bitmap = new System.Drawing.Bitmap(form.Width, form.Height);
-                    form.DrawToBitmap(bitmap, new System.Drawing.Rectangle(0, 0, form.Width, form.Height));
-                    bitmap.Save(previewPath);
-                    var tabs = Field<TabControl>(form, "_tabControl");
-                    foreach (var page in new[] { (Index: 1, Name: "profiller.png"), (Index: 2, Name: "ayarlar.png") })
-                    {
-                        tabs.SelectedIndex = page.Index;
-                        form.PerformLayout();
-                        using var pageBitmap = new System.Drawing.Bitmap(form.Width, form.Height);
-                        form.DrawToBitmap(pageBitmap, new System.Drawing.Rectangle(0, 0, form.Width, form.Height));
-                        pageBitmap.Save(Path.Combine(Path.GetDirectoryName(previewPath)!, page.Name));
-                    }
-                    tabs.SelectedIndex = 0;
-                }
                 Field<TextBox>(form, "_txtSearch").Text = "İkinci";
                 Assert.Single(grid.Rows.Cast<DataGridViewRow>());
                 Assert.True(button.Visible);
@@ -180,6 +209,25 @@ public class DataFlowTests
                 Assert.All(grid.Rows.Cast<DataGridViewRow>(), row => Assert.Equal(true, row.Cells["Checked"].Value));
                 grid.Rows[0].Cells["Checked"].Value = false;
                 Assert.False(button.Visible);
+                var previewPath = Environment.GetEnvironmentVariable("KARIYERTAKIP_TEST_PREVIEW_PATH");
+                if (!string.IsNullOrWhiteSpace(previewPath))
+                {
+                    form.Size = new System.Drawing.Size(1400, 900);
+                    form.PerformLayout();
+                    using var bitmap = new System.Drawing.Bitmap(form.Width, form.Height);
+                    form.DrawToBitmap(bitmap, new System.Drawing.Rectangle(0, 0, form.Width, form.Height));
+                    bitmap.Save(previewPath);
+                    var tabs = Field<TabControl>(form, "_tabControl");
+                    foreach (var page in new[] { (Index: 2, Name: "profiller.png"), (Index: 3, Name: "ayarlar.png") })
+                    {
+                        tabs.SelectedIndex = page.Index;
+                        form.PerformLayout();
+                        using var pageBitmap = new System.Drawing.Bitmap(form.Width, form.Height);
+                        form.DrawToBitmap(pageBitmap, new System.Drawing.Rectangle(0, 0, form.Width, form.Height));
+                        pageBitmap.Save(Path.Combine(Path.GetDirectoryName(previewPath)!, page.Name));
+                    }
+                    tabs.SelectedIndex = 0;
+                }
             }
             catch (Exception ex) { failure = ex; }
         });

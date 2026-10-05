@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text.RegularExpressions;
 using KariyerTakip.Models;
 using KariyerTakip.Common;
 
@@ -444,6 +445,7 @@ public class EligibilityEvaluator
         var status = profile.MilitaryStatus switch
         {
             "Muaf / Yapıldı" => ConditionStatus.Satisfied,
+            "Tecilli" when Regex.IsMatch(condition.Value, @"ertelen|tecil", RegexOptions.IgnoreCase) => ConditionStatus.Satisfied,
             "Yapılmadı" => ConditionStatus.Unsatisfied,
             _ => ConditionStatus.Unknown
         };

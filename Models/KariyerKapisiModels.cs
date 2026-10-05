@@ -25,6 +25,8 @@ public class GetIseAlimPageResponse
 
 public class SearchIlanItem
 {
+    public AnnouncementSource Source { get; set; } = AnnouncementSource.CareerGate;
+    public string DetailUrl { get; set; } = string.Empty;
     [JsonPropertyName("guid")]
     public string Guid { get; set; } = string.Empty;
 

@@ -49,6 +49,25 @@ public partial class MainForm
         filterPanel.Controls.Add(owner._cmbFilter);
         filterPanel.Controls.Add(owner._txtSearch);
         filterPanel.Controls.Add(btnRefresh);
+        owner._cmbApplicationFilter = new ComboBox { Width = 170, DropDownStyle = ComboBoxStyle.DropDownList };
+        owner._cmbApplicationFilter.Items.AddRange(new object[] { "Tüm başvuru durumları", "Takip edilmeyen", "Başvuracağım", "Başvurdum", "Geçtim" });
+        owner._cmbApplicationFilter.SelectedIndex = 0;
+        owner._cmbDeadlineFilter = new ComboBox { Width = 160, DropDownStyle = ComboBoxStyle.DropDownList };
+        owner._cmbDeadlineFilter.Items.AddRange(new object[] { "Tüm tarihler", "Aktif ilanlar", "7 gün içinde biten", "30 gün içinde biten", "Süresi dolanlar" });
+        owner._cmbDeadlineFilter.SelectedIndex = 0;
+        owner._cmbApplicationFilter.SelectedIndexChanged += (_, _) => owner.ApplyFilter();
+        owner._cmbDeadlineFilter.SelectedIndexChanged += (_, _) => owner.ApplyFilter();
+        filterPanel.Controls.Add(owner._cmbApplicationFilter);
+        filterPanel.Controls.Add(owner._cmbDeadlineFilter);
+        var resetFilters = new Button { Text = "Filtreleri sıfırla", AutoSize = true, Height = 28 };
+        resetFilters.Click += (_, _) => {
+            owner._cmbFilter.SelectedIndex = 0; owner._cmbApplicationFilter.SelectedIndex = 0;
+            owner._cmbDeadlineFilter.SelectedIndex = 0; owner._txtSearch.Clear();
+        };
+        filterPanel.Controls.Add(resetFilters);
+        owner._lblListSummary = new Label { AutoSize = true, Margin = new Padding(3, 7, 3, 3) };
+        filterPanel.Controls.Add(owner._lblListSummary);
+        owner._txtSearch.PlaceholderText = "Kurum / İlan / Unvan / Şehir...";
 
         owner._gridAnnouncements = new DataGridView
         {
@@ -82,8 +101,24 @@ public partial class MainForm
         owner._gridAnnouncements.Columns.Add("Title", "İlan Başlığı");
         owner._gridAnnouncements.Columns.Add("EndDate", "Son Başvuru");
         owner._gridAnnouncements.Columns.Add("ApplicationStatus", "Başvuru Takibi");
+        owner._gridAnnouncements.Columns.Add("RemainingTime", "Kalan Süre");
+        owner._gridAnnouncements.Columns.Add("PositionsCount", "Kadro");
         foreach (DataGridViewColumn column in owner._gridAnnouncements.Columns)
+        {
             column.ReadOnly = column.Name != "Checked";
+            column.SortMode = column.Name == "Checked" ? DataGridViewColumnSortMode.NotSortable : DataGridViewColumnSortMode.Programmatic;
+        }
+        owner._gridAnnouncements.ColumnHeaderMouseClick += (_, e) =>
+        {
+            if (e.Button != MouseButtons.Left || e.ColumnIndex < 0) return;
+            var column = owner._gridAnnouncements.Columns[e.ColumnIndex];
+            if (column.Name == "Checked") { owner.SelectVisibleAnnouncements(true); return; }
+            owner._announcementSortDescending = column.Name == owner._announcementSortColumn && !owner._announcementSortDescending;
+            owner._announcementSortColumn = column.Name;
+            owner.ApplyFilter();
+            foreach (DataGridViewColumn c in owner._gridAnnouncements.Columns) c.HeaderCell.SortGlyphDirection = SortOrder.None;
+            column.HeaderCell.SortGlyphDirection = owner._announcementSortDescending ? SortOrder.Descending : SortOrder.Ascending;
+        };
         owner._gridAnnouncements.CurrentCellDirtyStateChanged += (s, e) =>
         {
             if (owner._gridAnnouncements.IsCurrentCellDirty && owner._gridAnnouncements.CurrentCell?.OwningColumn?.Name == "Checked")
@@ -107,6 +142,12 @@ public partial class MainForm
             owner._gridAnnouncements.Columns[column.Name]!.FillWeight = column.Weight;
         }
         owner._gridAnnouncements.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill;
+        owner._gridAnnouncements.Columns["RemainingTime"]!.MinimumWidth = 80;
+        owner._gridAnnouncements.Columns["RemainingTime"]!.FillWeight = 14;
+        owner._gridAnnouncements.Columns["PositionsCount"]!.MinimumWidth = 55;
+        owner._gridAnnouncements.Columns["PositionsCount"]!.FillWeight = 8;
+        owner._gridAnnouncements.Columns["EndDate"]!.HeaderCell.SortGlyphDirection = SortOrder.Ascending;
+        owner.SetupColumnMenu();
         // Initialize tooltip for rows
         owner._gridTooltip = new ToolTip { AutoPopDelay = 5000, InitialDelay = 500, ReshowDelay = 200, ShowAlways = true };
         // Show placeholder on hover
@@ -136,12 +177,25 @@ public partial class MainForm
             Text = "Seçili ilanlara git", AutoSize = true, Height = 32, Visible = false,
             BackColor = Color.FromArgb(15, 37, 65), ForeColor = Color.White, FlatStyle = FlatStyle.Flat
         };
-        owner._btnOpenSelectedAnnouncements.Click += (s, e) =>
+        owner._btnOpenSelectedAnnouncements.Click += async (s, e) =>
         {
-            foreach (var url in owner.GetCheckedAnnouncementUrls()) owner.OpenUrl(url);
+            var selected = owner._cachedItems.Where(item => owner._checkedAnnouncementGuids.Contains(item.Record.Guid))
+                .Select(item => item.Record).ToList();
+            foreach (var record in selected) await owner.OpenAnnouncementAsync(record);
         };
         bulkActions.Controls.Add(owner._lblCheckedAnnouncements);
         bulkActions.Controls.Add(owner._btnOpenSelectedAnnouncements);
+        var selectAll = new Button { Text = "Görünenleri seç", AutoSize = true, Height = 32 };
+        selectAll.Click += (_, _) => owner.SelectVisibleAnnouncements(true);
+        var clearSelection = new Button { Text = "Seçimleri temizle", AutoSize = true, Height = 32 };
+        clearSelection.Click += (_, _) => {
+            owner._checkedAnnouncementGuids.Clear(); owner.SelectVisibleAnnouncements(false);
+        };
+        owner._btnExportAnnouncements = new Button { Text = "Seçilileri CSV'ye aktar", AutoSize = true, Height = 32, Enabled = false };
+        owner._btnExportAnnouncements.Click += async (_, _) => await owner.ExportCheckedAnnouncementsAsync();
+        bulkActions.Controls.Add(selectAll);
+        bulkActions.Controls.Add(clearSelection);
+        bulkActions.Controls.Add(owner._btnExportAnnouncements);
         leftPanel.Controls.Add(owner._gridAnnouncements);
         leftPanel.Controls.Add(filterPanel);
         leftPanel.Controls.Add(bulkActions);
@@ -226,7 +280,10 @@ public partial class MainForm
             FlatStyle = FlatStyle.Flat,
             Cursor = Cursors.Hand
         };
-        owner._btnOpenKariyerKapisi.Click += (s, e) => owner.OpenUrl(owner._selectedItem == null ? null : GetAnnouncementDetailUrl(owner._selectedItem.Record));
+        owner._btnOpenKariyerKapisi.Click += async (s, e) =>
+        {
+            if (owner._selectedItem != null) await owner.OpenAnnouncementAsync(owner._selectedItem.Record);
+        };
 
         owner._btnOpenEDevlet = new Button
         {
@@ -254,7 +311,15 @@ public partial class MainForm
         };
         owner._btnSendTelegramNow.Click += async (s, e) => await owner.SendSelectedToTelegramAsync();
 
+        owner._btnOpenKamuIlanSite = new Button
+        {
+            Text = "🌐 Kamu İlan Sitesi", Width = 160, Height = 38, Visible = false,
+            BackColor = Color.FromArgb(15, 37, 65), ForeColor = Color.White,
+            FlatStyle = FlatStyle.Flat, Cursor = Cursors.Hand
+        };
+        owner._btnOpenKamuIlanSite.Click += (_, _) => owner.OpenUrl(KariyerTakip.Services.KamuIlanClient.BaseUrl);
         pnlActions.Controls.Add(owner._btnOpenKariyerKapisi);
+        pnlActions.Controls.Add(owner._btnOpenKamuIlanSite);
         pnlActions.Controls.Add(owner._btnOpenEDevlet);
         pnlActions.Controls.Add(owner._btnSendTelegramNow);
         var feedback = new Button { Text = "Bu değerlendirme yanlış", AutoSize = true, Height = 38 };
@@ -279,9 +344,7 @@ public partial class MainForm
         owner._applicationTracking = new ApplicationTrackingControl(owner._repository);
         owner._applicationTracking.TrackingSaved += () =>
         {
-            foreach (DataGridViewRow row in owner._gridAnnouncements.Rows)
-                if (row.Tag is AnnouncementDisplayItem item)
-                    row.Cells["ApplicationStatus"].Value = ApplicationTrackingControl.DisplayStatus(item.Record.ApplicationStatus);
+            owner.ApplyFilter();
         };
         trackingPage.Controls.Add(owner._applicationTracking);
         detailTabs.TabPages.AddRange(new[] { detailPage, trackingPage });

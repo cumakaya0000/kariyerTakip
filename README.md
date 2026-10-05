@@ -1,13 +1,18 @@
 # KariyerTakip
 
-Windows için Kariyer Kapısı ilanlarını tarayan, kadro şartlarını profille karşılaştıran ve başvuruları takip eden masaüstü uygulaması. C# / .NET 10, WinForms ve SQLite kullanır.
+Windows için Kariyer Kapısı ve Kamu İlan (SBB) ilanlarını ayrı bölümlerde takip eden, API ve PDF belgelerinden alınan kadro şartlarını profille karşılaştıran ve başvuruları takip eden masaüstü uygulaması. C# / .NET 10, WinForms ve SQLite kullanır.
 
 Bu proje resmî değildir; kişisel kullanım için dokümante edilmemiş kamuya açık API'yi düşük istek hızıyla okur. İstemci kendisini `KariyerTakip/1.0` olarak tanıtır. Portal izinleri ve kullanım koşullarına uyun; erişim kısıtlarını aşmaya çalışmayın.
 
 ## Özellikler
 
 - İlan ve kadro taraması; uygun / kontrol gerekli / uygun değil sonuçları ve ayrı gerekçe satırları.
-- Kutucuklarla çoklu ilan seçimi ve seçilen ilanları tarayıcıda açma.
+- Kariyer Kapısı ve Kamu İlan (SBB) için ayrı sekmeler; bildirimlerde kaynak adı.
+- SBB PDF tablolarından kadro, mezuniyet, KPSS, kontenjan ve özel şartları çıkarma; resmî PDF'yi yerel önbellekten açma.
+- Sütun başlığıyla sıralama, başvuru durumu ve son tarih filtreleri; kurum, başlık, unvan ve şehir araması.
+- Kalan süre ve kadro sayısı sütunları; sağ tıkla sütunları gösterme/gizleme.
+- Kutucuklarla çoklu seçim, görünen ilanları topluca seçme ve seçili ilanları CSV'ye aktarma.
+- Seçili Kariyer Kapısı ilanlarını tarayıcıda, SBB belgelerini PDF görüntüleyicisinde açma; SBB sitesine ayrı düğmeyle erişme.
 - Başvuru takibi: **başvuracağım / başvurdum / geçtim** ve yerel notlar.
 - Birden fazla profil ve her profilde birden fazla KPSS puan türü/yılı.
 - Öğrenim, KPSS, tecrübe, yaş, askerlik, sertifika, ehliyet, şehir ve çalışma türü değerlendirmesi.
@@ -34,7 +39,7 @@ Kurulum yapmaya veya .NET SDK yüklemeye gerek kalmadan programı doğrudan çal
 
 > [!NOTE]
 > **Windows Uygulama Denetimi (Hata 4551) Uyarısı:**
-> Standart Inno Setup kurulum sihirbazları `%TEMP%` klasörüne geçici `.tmp` dosyası açıp çalıştırdığı için Windows 11 Akıllı Uygulama Denetimi (Smart App Control) tarafından engellenebilir (Hata 4551). Yukarıdaki **doğrudan taşınabilir (portable) `KariyerTakip.exe`** dosyasını kullandığınızda hiçbir geçici klasör engeline takılmadan uygulama doğrudan açılır.
+> Standart Inno Setup kurulum sihirbazları `%TEMP%` klasörüne geçici `.tmp` dosyası açıp çalıştırdığı için Windows 11 Akıllı Uygulama Denetimi (Smart App Control) tarafından engellenebilir (Hata 4551). Doğrudan çalıştırılabilir EXE kurulum sihirbazını gerektirmez; ancak EXE ve .NET'in çıkardığı dosyalar da Windows güvenlik ilkesine tabidir. Uygulama denetimi engellerse aşağıdaki sorun giderme bölümünü inceleyin.
 
 ### 2. Kurulum Sihirbazı ile Kurulum
 
@@ -59,6 +64,30 @@ dotnet run --project KariyerTakip.csproj
 
 Test projesi çözüme dahildir. Çözüm üzerinden test komutu gerçekten testleri çalıştırır.
 
+## İlan listesi ve filtreler
+
+İlan listesinde sütun başlıklarına tıklayarak sıralama yapabilirsiniz; son başvuru tarihleri takvim sırasıyla sıralanır. **Kalan Süre** ve **Kadro** sütunları özet bilgiyi gösterir. Sütun başlığına sağ tıklayarak sütunları gizleyebilir/gösterebilirsiniz. Başvuru durumu ve son tarih filtreleri uygunluk filtresiyle birlikte çalışır; arama kurum, başlık, unvan ve şehirleri kapsar. **Görünenleri seç**, **Seçimleri temizle** ve **Seçilileri CSV'ye aktar** düğmeleri toplu işlemler içindir. CSV kişisel notları içermez; SBB için herkese açık site adresini kullanır.
+
+- **Son tarih:** aktif ilanlar, 7 veya 30 gün içinde bitenler ve süresi dolanlar. Tarihi bilinmeyen ilanlar tarih sıralamasında en sonda gösterilir.
+- **Kalan Süre:** bir günden az kaldığında saat, diğer durumlarda gün; son üç gündeki tarihler turuncu gösterilir.
+- **Kadro:** ilandan okunabilen kadro satırı sayısıdır; toplam kontenjan değildir.
+- **Seçim:** filtreleme ve sıralama işaretli ilanları korur. CSV aktarımı aynı kaynaktaki filtre dışında kalmış seçili ilanları da içerir. **Seçimleri temizle** tüm işaretleri kaldırır.
+- **CSV:** UTF-8, noktalı virgülle ayrılmış dosya; kaynak, kurum, başlık, uygunluk, son başvuru, başvuru takibi, kadro sayısı ve resmî bağlantı sütunlarını içerir.
+
+## İlan kaynakları ve SBB PDF belgeleri
+
+**Kariyer Kapısı** ve **Kamu İlan (SBB)** ayrı ilan sekmeleridir. **Şimdi Tara** ve ekran olmadan tarama iki kaynağı da okur; bir kaynak erişilemezse diğerinin taraması sürer ve sonuç kısmi olarak bildirilir. Mevcut Kariyer Kapısı kayıtları, başvuru durumları ve notları korunur. Telegram mesajlarında kaynak adı bulunur.
+
+[Kamu İlan (SBB)](https://kamuilan.sbb.gov.tr/) için herkese açık ilan listesi ve resmî PDF belgeleri okunur. PDF istekleri aynı oturum ve ana sayfa referansıyla yapılır. PDF tablolarındaki unvan, ilan kodu, kontenjan, mezuniyet, KPSS ve özel şartlar kadro bazında ayrılır; genel şartlar ayrı saklanır. Her kadro aktif profilinizle değerlendirilir ve gerekçelerde PDF'deki ilgili şart gösterilir. PDF metni önbellekte saklandığından profil değişince belge yeniden indirilmeden değerlendirilir.
+
+Sitede yıl belirtilmeyen tarihler güncel tarihe göre yorumlanır; PDF'de açıkça belirtilen başlangıç/bitiş tarihi ve saati liste tarihinden önceliklidir. PDF okunamazsa mevcut metin, kadrolar ve PDF'den alınmış tarihler korunur; sonuç **Kontrol gerekli** gösterilir. Taranmış görüntü PDF'leri, güvenilir biçimde ayrılamayan kadrolar ve profil kapsamı dışındaki akademik şartlar otomatik kesin sonuca dönüştürülmez. Görüntü PDF'leri için bu sürümde OCR yoktur. PDF başına 20 MB / 100 sayfa sınırı vardır. Resmî belgeyi kontrol edin; kontrol gereken ilanların bildirimleri için **kontrol gerekli ilanları dahil et** ayarı açık olmalıdır.
+
+SBB'nin şifreli `kod` bağlantıları her sayfa okumasında değiştiğinden kimlik olarak kullanılmaz. Kurum, başlık ve yayın günü ile yerel kimlik üretilir; bağlantı her başarılı taramada yenilenir. Aynı kurumun aynı başlık ve yayın gününe sahip tekrarları tek kayıt olarak tutulur.
+
+SBB bağlantıları tarayıcıya doğrudan taşındığında oturum/referans gereksinimi nedeniyle 404 dönebilir. **Kamu İlan PDF** düğmesi, ilanı çift tıklama ve toplu açma işlemi indirilen resmî PDF'yi varsayılan PDF görüntüleyicisinde açar. Belgeler veri klasörünün `documents` dizininde saklanır ve sonraki başarılı indirmelerde yenilenir. PDF henüz indirilmemişse uygulama güncel listeden yeni bağlantıyı bulur ve aynı oturumla indirir. Telegram mesajları oturuma bağlı belge bağlantısı yerine SBB listesi/arşivi bağlantısını içerir.
+
+Kamu İlan sekmesindeki site düğmesi [kamuilan.sbb.gov.tr](https://kamuilan.sbb.gov.tr/) ana sayfasını varsayılan tarayıcıda açar.
+
 ## Profil ve başvuru takibi
 
 **Profilim** sekmesinde mevcut profili seçin veya yeni profil ekleyin. KPSS tablosunun boş satırına P93/P3/P94, sınav yılı ve puanı girerek birden fazla puan saklayabilirsiniz. Satır seçip Delete ile silebilirsiniz. Aynı puan türü/yıl çifti yinelenemez. **Kaydet** düğmesi aktif profili ve diğer profilleri saklar, ilanları yeniden değerlendirir.
@@ -78,6 +107,7 @@ Varsayılan veri klasörü `%LOCALAPPDATA%\KariyerTakip` dizinidir. Exe yanında
 - `profiles.json`: adlandırılmış profiller ve aktif profil; mevcutsa esas kaynak budur.
 - `telegram.secret`: Windows DPAPI ile mevcut Windows hesabına bağlı şifreli token.
 - `kariyertakip.db`: ilanlar, kadrolar, değerlendirmeler, başvuru notları ve kuyruk.
+- `documents/`: indirilen resmî SBB PDF belgeleri; Git deposuna veya yayın paketine eklenmez.
 - `logs/kariyertakip-YYYY-MM-DD.log`: UTC zaman damgalı günlükler.
 
 Eski profillerde `Experience.Years` aya çevrilir; `OtherConditions.MilitaryStatus` üst seviyeye taşınır. `MaxAge` bir kişinin doğum tarihi yerine kullanılamayacağı için doğum tarihi uydurulmaz. Eski SQLite şeması kayıtlar korunarak otomatik güncellenir; veritabanını silmeyin.
@@ -162,6 +192,8 @@ Tek dosya yayınında sıkıştırma açıktır. ZIP içinde exe için `SHA256SU
 | Telegram 401/403 | Token, sohbet ID, botla `/start` ve sohbet izinlerini kontrol edin. |
 | Telegram 429 | Kuyruk belirtilen süreyi bekler; daha sonraki taramada devam eder. |
 | API/JSON yanıtı değişti | Dosya günlüğünü kontrol edip örnek yanıtla sorun açın. |
+| SBB PDF bağlantısı tarayıcıda 404 veriyor | Uygulamadaki **Kamu İlan PDF** düğmesini kullanın; belge aynı oturumla indirilip yerel olarak açılır. |
+| SBB belgesi okunamıyor / kadrolar ayrıştırılamıyor | Resmî PDF'yi açıp kontrol edin. Görüntü PDF'leri için OCR yoktur; belirsiz şartlar **Kontrol gerekli** kalır. |
 | İlanlar kontrol gerekli görünüyor | Aktif profili kaydedip yeniden değerlendirin; bilinmeyen şartlar için kılavuzu kontrol edin. |
 | Şifreli token başka hesapta okunamıyor | Token'ı o Windows hesabında yeniden kaydedin. |
 

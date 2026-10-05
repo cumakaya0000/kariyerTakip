@@ -14,6 +14,7 @@ using Xunit;
 
 namespace KariyerTakip.Tests;
 
+[Collection("ScanCoordinator")]
 public sealed class ServiceReliabilityTests
 {
     [Fact]

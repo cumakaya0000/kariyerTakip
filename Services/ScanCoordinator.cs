@@ -34,6 +34,7 @@ public class ScanCoordinator
     private readonly ILogger<ScanCoordinator> _logger;
     private readonly DeadlineReminderService _reminders;
     private readonly ApiHealthMonitor? _health;
+    private readonly KamuIlanClient? _kamuClient;
 
     public ScanCoordinator(
         CareerGateClient client,
@@ -46,7 +47,8 @@ public class ScanCoordinator
         IOptions<ProfileOptions> profile,
         ILogger<ScanCoordinator> logger,
         DeadlineReminderService reminders,
-        ApiHealthMonitor? health = null)
+        ApiHealthMonitor? health = null,
+        KamuIlanClient? kamuClient = null)
     {
         _client = client;
         _repository = repository;
@@ -59,6 +61,7 @@ public class ScanCoordinator
         _logger = logger;
         _reminders = reminders;
         _health = health;
+        _kamuClient = kamuClient;
     }
 
     public async Task<ScanRunResult> RunScanAsync(CancellationToken cancellationToken = default, ProfileOptions? profile = null)
@@ -87,25 +90,43 @@ public class ScanCoordinator
             scanId = await _repository.RecordScanStartAsync();
 
             var activeListResult = await _client.GetActiveAnnouncementsAsync(_config.Scan.SearchKeyword, cancellationToken);
+            var kamuListResult = _kamuClient == null ? null :
+                await _kamuClient.GetActiveAnnouncementsAsync(_config.Scan.SearchKeyword, cancellationToken);
             if (!activeListResult.IsSuccess)
             {
                 var errMsg = activeListResult.ErrorMessage ?? "İlan listesi alınamadı.";
                 _logger.LogError("Tarama başlatılamadı: {Error}", errMsg);
-                result.Status = ScanStatus.Failed;
                 result.ErrorMessage = errMsg;
+                result.FailedCount++;
                 if (_health != null)
                 {
                     await _health.ObserveAsync(activeListResult.Status == ApiCallStatus.EmptyResponse, activeListResult.Status == ApiCallStatus.ParseError, false);
-                    await _dispatcher.ProcessOutboxAsync(cancellationToken);
                 }
+            }
+
+            if (kamuListResult != null && !kamuListResult.IsSuccess)
+            {
+                result.FailedCount++;
+                result.ErrorMessage = string.Join(" | ", new[] { result.ErrorMessage, kamuListResult.ErrorMessage }.Where(x => !string.IsNullOrEmpty(x)));
+                _logger.LogWarning("Kamu İlan taranamadı: {Error}. Önbellek korunuyor.", kamuListResult.ErrorMessage);
+            }
+            if (!activeListResult.IsSuccess && (kamuListResult == null || !kamuListResult.IsSuccess))
+            {
+                result.Status = ScanStatus.Failed;
+                await _dispatcher.ProcessOutboxAsync(cancellationToken);
                 return result;
             }
 
             var announcements = activeListResult.Data ?? new List<SearchIlanItem>();
+            if (kamuListResult?.Data != null) announcements.AddRange(kamuListResult.Data);
+            _logger.LogInformation("Kaynaklar: Kariyer Kapısı {CareerCount}, Kamu İlan (SBB) {KamuCount}",
+                announcements.Count(x => x.Source == AnnouncementSource.CareerGate), announcements.Count(x => x.Source == AnnouncementSource.KamuIlan));
             result.TotalFound = announcements.Count;
             var profileHash = _changeDetector.ComputeHash(JsonSerializer.Serialize(scanProfile));
 
             var aggregateLock = new object();
+            var careerParseErrors = 0;
+            var careerFailures = 0;
             await Parallel.ForEachAsync(announcements, new ParallelOptions
             {
                 MaxDegreeOfParallelism = Math.Clamp(_config.Scan.MaxConcurrency, 1, 8),
@@ -127,11 +148,17 @@ public class ScanCoordinator
                     result.EligibleCount += itemResult.EligibleCount;
                     result.NeedsReviewCount += itemResult.NeedsReviewCount;
                     result.ParseErrorCount += itemResult.ParseErrorCount;
+                    if (item.Source == AnnouncementSource.CareerGate)
+                    {
+                        careerParseErrors += itemResult.ParseErrorCount;
+                        careerFailures += itemResult.FailedCount;
+                    }
                 }
             });
             // 4. Dispatch pending notifications
-            if (_health != null) await _health.ObserveAsync(announcements.Count == 0, result.ParseErrorCount > 0,
-                announcements.Count > 0 && result.ParseErrorCount == 0 && result.FailedCount == 0);
+            if (_health != null && activeListResult.IsSuccess) await _health.ObserveAsync(
+                announcements.All(x => x.Source != AnnouncementSource.CareerGate), careerParseErrors > 0,
+                announcements.Any(x => x.Source == AnnouncementSource.CareerGate) && careerParseErrors == 0 && careerFailures == 0);
             await _reminders.QueueAsync(scanProfile, cancellationToken);
             await _dispatcher.ProcessOutboxAsync(cancellationToken);
 
@@ -178,11 +205,24 @@ public class ScanCoordinator
         var wasPreviouslyEligible = previousEvals.Any(e => e.Status == EligibilityStatus.Eligible.ToString());
 
         // 1. Fetch preview
-        var previewResult = await _client.GetAnnouncementPreviewAsync(item.Guid, cancellationToken);
-        var generalText = previewResult.Data?.IlanMetni ?? existing?.RawGeneralText ?? string.Empty;
+        var isKamu = item.Source == AnnouncementSource.KamuIlan;
+        var documentResult = isKamu && _kamuClient != null ? await _kamuClient.GetAnnouncementDocumentAsync(item, cancellationToken) : null;
+        var previewResult = isKamu
+            ? documentResult?.IsSuccess == true
+                ? ApiResult<IlanPreviewResponse>.Ok(new IlanPreviewResponse {
+                    IlanMetni = documentResult.Data!.FullText, BasTarih = documentResult.Data.StartDate,
+                    BitTarih = documentResult.Data.EndDate, BasvuruLinki = documentResult.Data.ApplicationUrl })
+                : ApiResult<IlanPreviewResponse>.Fail(documentResult?.Status ?? ApiCallStatus.ParseError, documentResult?.ErrorMessage ?? "PDF okunamadı.")
+            : await _client.GetAnnouncementPreviewAsync(item.Guid, cancellationToken);
+        var generalText = previewResult.Data?.IlanMetni ?? existing?.RawGeneralText ?? (isKamu ? documentResult?.ErrorMessage ?? "PDF okunamadı." : string.Empty);
+        var conditionsText = isKamu ? documentResult?.Data?.GeneralConditionsText ?? existing?.GeneralConditionsText ?? "" : generalText;
 
         // 2. Fetch positions
-        var posResult = await _client.GetPositionsAsync(item.Guid, cancellationToken);
+        var posResult = isKamu
+            ? documentResult?.IsSuccess == true
+                ? ApiResult<List<AltIlanResponse>>.Ok(documentResult.Data!.Positions)
+                : ApiResult<List<AltIlanResponse>>.Fail(documentResult?.Status ?? ApiCallStatus.ParseError, documentResult?.ErrorMessage ?? "PDF okunamadı.")
+            : await _client.GetPositionsAsync(item.Guid, cancellationToken);
 
         // If fetching failed completely on network error, do not delete existing positions!
         var positionsToUse = new List<AltIlanResponse>();
@@ -196,8 +236,16 @@ public class ScanCoordinator
             // Fallback to cached positions from DB
             cachedDbPositions = await _repository.GetPositionsByAnnouncementGuidAsync(item.Guid);
             positionsToUse = cachedDbPositions.Select(PositionIdentity.FromCache).ToList();
-            _logger.LogWarning("Kadro API yanıt vermedi, mevcut önbellekteki kadrolar korundu: {Guid}", item.Guid);
+            _logger.LogWarning("Kadro kaynağı okunamadı, mevcut önbellekteki kadrolar korundu: {Guid}", item.Guid);
         }
+        if (isKamu && positionsToUse.Count == 0)
+        {
+            cachedDbPositions = null;
+            positionsToUse.Add(new AltIlanResponse { IlanBaslik = item.IlanBaslik,
+                IlanMetni = PdfAnnouncementReader.ReviewMarker + "\n" + (documentResult?.ErrorMessage ?? "PDF kadroları okunamadı.") });
+        }
+        if (isKamu && documentResult?.IsSuccess != true)
+            _logger.LogWarning("Kamu İlan PDF okunamadı: {Title}. {Reason}", item.IlanBaslik, documentResult?.ErrorMessage);
 
         if (!previewResult.IsSuccess || !posResult.IsSuccess)
         {
@@ -205,14 +253,14 @@ public class ScanCoordinator
         }
         if (previewResult.Status == ApiCallStatus.ParseError || posResult.Status == ApiCallStatus.ParseError) result.ParseErrorCount++;
 
-        if (!previewResult.IsSuccess && !posResult.IsSuccess && existing == null)
+        if (!isKamu && !previewResult.IsSuccess && !posResult.IsSuccess && existing == null)
         {
             return result;
         }
 
         result.ProcessedCount++;
 
-        var detailUrl = $"{_config.PortalBaseUrl.TrimEnd('/')}/IlanDetay?i={item.Guid}";
+        var detailUrl = isKamu ? documentResult?.Data?.PdfUrl ?? item.DetailUrl : $"{_config.PortalBaseUrl.TrimEnd('/')}/IlanDetay?i={item.Guid}";
         var applicationUrl = !string.IsNullOrWhiteSpace(previewResult.Data?.EDevletServisURL)
             ? previewResult.Data.EDevletServisURL
             : (!string.IsNullOrWhiteSpace(previewResult.Data?.BasvuruLinki) ? previewResult.Data.BasvuruLinki :
@@ -223,6 +271,7 @@ public class ScanCoordinator
 
         var record = new AnnouncementRecord
         {
+            Source = item.Source,
             Guid = item.Guid,
             InstitutionName = item.KurumAdi,
             UnitName = item.BirimAdi,
@@ -230,9 +279,14 @@ public class ScanCoordinator
             AnnouncementType = item.IlanTuru,
             DetailUrl = detailUrl,
             ApplicationUrl = applicationUrl ?? string.Empty,
-            StartDate = AppTime.ToUtc(item.BasTarih ?? previewResult.Data?.BasTarih ?? existing?.StartDate),
-            EndDate = AppTime.ToUtc(item.BitTarih ?? previewResult.Data?.BitTarih ?? existing?.EndDate),
+            StartDate = AppTime.ToUtc(isKamu
+                ? previewResult.Data?.BasTarih ?? existing?.StartDate ?? item.BasTarih
+                : item.BasTarih ?? previewResult.Data?.BasTarih ?? existing?.StartDate),
+            EndDate = AppTime.ToUtc(isKamu
+                ? previewResult.Data?.BitTarih ?? existing?.EndDate ?? item.BitTarih
+                : item.BitTarih ?? previewResult.Data?.BitTarih ?? existing?.EndDate),
             RawGeneralText = generalText,
+            GeneralConditionsText = conditionsText,
             RawContentHash = contentHash,
             FirstSeenAt = existing?.FirstSeenAt ?? DateTime.UtcNow,
             LastCheckedAt = DateTime.UtcNow,
@@ -255,7 +309,8 @@ public class ScanCoordinator
             var p = positionsToUse[i];
             var posKey = dbPositions[i].PositionKey;
 
-            var eval = _evaluator.EvaluatePosition(p, generalText, profile, posKey, record.EndDate);
+            var eval = isKamu ? EvaluateKamuPosition(p, conditionsText, profile, posKey, record.EndDate, !posResult.IsSuccess) :
+                _evaluator.EvaluatePosition(p, generalText, profile, posKey, record.EndDate);
             eval.Cities = dbPositions[i].Cities;
             eval.TotalQuota = dbPositions[i].Quota;
             evaluatedPositions.Add(eval);
@@ -344,7 +399,8 @@ public class ScanCoordinator
             {
                 var altIlan = PositionIdentity.FromCache(pos);
 
-                var eval = _evaluator.EvaluatePosition(altIlan, ann.RawGeneralText, profile, pos.PositionKey, ann.EndDate);
+                var eval = ann.Source == AnnouncementSource.KamuIlan ? EvaluateKamuPosition(altIlan, ann.GeneralConditionsText, profile, pos.PositionKey, ann.EndDate, ann.LastScanStatus != "Success") :
+                    _evaluator.EvaluatePosition(altIlan, ann.RawGeneralText, profile, pos.PositionKey, ann.EndDate);
                 eval.Cities = pos.Cities;
                 eval.TotalQuota = pos.Quota;
 
@@ -361,5 +417,21 @@ public class ScanCoordinator
             }
         }
         _logger.LogInformation("Yeniden değerlendirme tamamlandı.");
+    }
+
+    private PositionEvaluation EvaluateKamuPosition(AltIlanResponse position, string generalText, ProfileOptions profile, string key, DateTime? endDate, bool stale)
+    {
+        var evaluation = _evaluator.EvaluatePosition(position, generalText, profile, key, endDate);
+        if (stale || position.IlanMetni?.Contains(PdfAnnouncementReader.ReviewMarker) == true || position.IlanMetni == AnnouncementSources.KamuReviewReason)
+        {
+            evaluation.Status = EligibilityStatus.NeedsReview;
+            evaluation.SummaryReason = stale ? "PDF güncel taramada okunamadı; mevcut belge/kadro bilgilerini resmî ilanla kontrol edin." :
+                "PDF metni okundu; kadro sınırları veya özel şartlar için belge kontrolü gerekiyor.";
+            evaluation.Conditions.Add(new ConditionEvaluation {
+                CriterionName = "PDF belgesi / kadro ayrımı", Status = ConditionStatus.Unknown,
+                Explanation = evaluation.SummaryReason
+            });
+        }
+        return evaluation;
     }
 }

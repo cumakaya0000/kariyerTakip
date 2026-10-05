@@ -45,6 +45,7 @@ public partial class MainForm : Form
     private Label _lblDetailStatusBadge = null!;
     private RichTextBox _rtbDetailContent = null!;
     private Button _btnOpenKariyerKapisi = null!;
+    private Button _btnOpenKamuIlanSite = null!;
     private Button _btnOpenEDevlet = null!;
     private Button _btnSendTelegramNow = null!;
 
@@ -65,6 +66,11 @@ public partial class MainForm : Form
     private Button _btnOpenSelectedAnnouncements = null!;
     private Label _lblCheckedAnnouncements = null!;
     private bool _isUpdatingAnnouncementRows;
+    private ComboBox _cmbApplicationFilter = null!;
+    private ComboBox _cmbDeadlineFilter = null!;
+    private string _announcementSortColumn = "EndDate";
+    private bool _announcementSortDescending;
+    private AnnouncementSource _selectedSource = AnnouncementSource.CareerGate;
 
     public MainForm(
         IServiceProvider serviceProvider,
@@ -225,9 +231,21 @@ public partial class MainForm : Form
         };
 
         // Tab 1: İlanlar
-        var tabAnnouncements = new TabPage("📋 İlanlar & Pozisyonlar") { BackColor = Color.White };
+        var tabAnnouncements = new TabPage("📋 Kariyer Kapısı") { BackColor = Color.White };
         SetupAnnouncementsTab(tabAnnouncements);
         _tabControl.TabPages.Add(tabAnnouncements);
+        var tabKamuIlan = new TabPage("📋 Kamu İlan (SBB)") { BackColor = Color.White };
+        _tabControl.TabPages.Add(tabKamuIlan);
+        var announcementsView = tabAnnouncements.Controls[0];
+        _tabControl.SelectedIndexChanged += (_, _) =>
+        {
+            if (_tabControl.SelectedTab != tabAnnouncements && _tabControl.SelectedTab != tabKamuIlan) return;
+            _selectedSource = _tabControl.SelectedTab == tabKamuIlan ? AnnouncementSource.KamuIlan : AnnouncementSource.CareerGate;
+            _btnOpenKamuIlanSite.Visible = _selectedSource == AnnouncementSource.KamuIlan;
+            _tabControl.SelectedTab.Controls.Add(announcementsView);
+            _checkedAnnouncementGuids.Clear();
+            ApplyFilter();
+        };
 
         // Tab 2: Profilim
         var tabProfile = new TabPage("👤 Profilim") { BackColor = Color.White };
@@ -306,7 +324,7 @@ public partial class MainForm : Form
             }
             else if (result.Status == ScanStatus.Partial)
             {
-                _lblStatus.Text = $"⚠️ Kısmi tarama ({result.FailedCount} ilan okunamadı)";
+                _lblStatus.Text = result.ErrorMessage != null ? $"⚠️ Kısmi tarama: {result.ErrorMessage}" : $"⚠️ Kısmi tarama ({result.FailedCount} ilan okunamadı)";
                 _lblStatus.ForeColor = Color.Gold;
             }
             else if (result.Status == ScanStatus.Cancelled)
@@ -401,23 +419,13 @@ public partial class MainForm : Form
     private void ApplyFilter()
     {
         var filterIndex = _cmbFilter.SelectedIndex;
-        var search = _txtSearch.Text.Trim().ToLowerInvariant();
+        var search = _txtSearch.Text.Trim();
 
-        var filtered = _cachedItems.Where(item =>
-        {
-            if (filterIndex == 1 && item.Status != EligibilityStatus.Eligible) return false;
-            if (filterIndex == 2 && item.Status != EligibilityStatus.NeedsReview) return false;
-            if (filterIndex == 3 && item.Status != EligibilityStatus.Ineligible) return false;
-
-            if (!string.IsNullOrWhiteSpace(search))
-            {
-                var match = item.Record.InstitutionName.ToLowerInvariant().Contains(search) ||
-                            item.Record.Title.ToLowerInvariant().Contains(search);
-                if (!match) return false;
-            }
-
-            return true;
-        }).ToList();
+        var selectedGuid = _selectedItem?.Record.Guid;
+        var nowUtc = DateTime.UtcNow;
+        var filtered = AnnouncementListQuery.Apply(_cachedItems, _selectedSource, filterIndex,
+            Math.Max(0, _cmbApplicationFilter?.SelectedIndex ?? 0), Math.Max(0, _cmbDeadlineFilter?.SelectedIndex ?? 0),
+            search, _announcementSortColumn, _announcementSortDescending, nowUtc);
 
         _isUpdatingAnnouncementRows = true;
         try
@@ -436,6 +444,10 @@ public partial class MainForm : Form
                 var rowIdx = _gridAnnouncements.Rows.Add(_checkedAnnouncementGuids.Contains(item.Record.Guid), statusText, item.Record.InstitutionName, item.Record.Title, endStr,
                     ApplicationTrackingControl.DisplayStatus(item.Record.ApplicationStatus));
                 _gridAnnouncements.Rows[rowIdx].Tag = item;
+                _gridAnnouncements.Rows[rowIdx].Cells["RemainingTime"].Value = AnnouncementListQuery.RemainingTime(item.Record.EndDate, nowUtc);
+                _gridAnnouncements.Rows[rowIdx].Cells["PositionsCount"].Value = item.Positions.Count;
+                if (item.Record.EndDate is { } deadline && deadline >= nowUtc && deadline <= nowUtc.AddDays(3))
+                    _gridAnnouncements.Rows[rowIdx].Cells["RemainingTime"].Style.ForeColor = _isDarkMode ? Color.Orange : Color.DarkOrange;
 
                 if (item.Status == EligibilityStatus.Eligible)
                 {
@@ -451,11 +463,13 @@ public partial class MainForm : Form
             {
                 // Force deselect first so SelectionChanged always fires even if row 0 was already selected
                 _gridAnnouncements.ClearSelection();
-                _gridAnnouncements.Rows[0].Selected = true;
-                _gridAnnouncements.CurrentCell = _gridAnnouncements.Rows[0].Cells[0];
+                var selectedRow = _gridAnnouncements.Rows.Cast<DataGridViewRow>()
+                    .FirstOrDefault(row => row.Tag is AnnouncementDisplayItem item && item.Record.Guid == selectedGuid) ?? _gridAnnouncements.Rows[0];
+                selectedRow.Selected = true;
+                _gridAnnouncements.CurrentCell = selectedRow.Cells[0];
 
                 // Also directly populate the detail panel in case SelectionChanged doesn't re-fire
-                var firstItem = _gridAnnouncements.Rows[0].Tag as AnnouncementDisplayItem;
+                var firstItem = selectedRow.Tag as AnnouncementDisplayItem;
                 if (firstItem != null)
                     PopulateDetailPanel(firstItem);
             }
@@ -467,6 +481,7 @@ public partial class MainForm : Form
         finally
         {
             _isUpdatingAnnouncementRows = false;
+            _lblListSummary.Text = $"{filtered.Count} ilan | {filtered.Count(x => x.Status == EligibilityStatus.Eligible)} uygun | {filtered.Count(x => x.Status == EligibilityStatus.NeedsReview)} kontrol gerekli";
             UpdateCheckedAnnouncements();
         }
     }
@@ -480,10 +495,12 @@ public partial class MainForm : Form
             $"{count} ilan seçili" + (count > visibleCount ? $" ({count - visibleCount} tanesi filtre dışında)" : "");
         _btnOpenSelectedAnnouncements.Text = $"Seçili {count} ilana git";
         _btnOpenSelectedAnnouncements.Visible = count > 1;
+        _btnExportAnnouncements.Enabled = count > 0;
     }
 
     private static string GetAnnouncementDetailUrl(AnnouncementRecord record) =>
         !string.IsNullOrWhiteSpace(record.DetailUrl) ? record.DetailUrl :
+            record.Source == AnnouncementSource.KamuIlan ? KamuIlanClient.BaseUrl :
             $"https://kariyerkapisi.gov.tr/IlanDetay?i={Uri.EscapeDataString(record.Guid)}";
 
     private List<string> GetCheckedAnnouncementUrls() => _cachedItems
@@ -504,6 +521,7 @@ public partial class MainForm : Form
 
     private void GridAnnouncements_SelectionChanged(object? sender, EventArgs e)
     {
+        if (_isUpdatingAnnouncementRows) return;
         if (_gridAnnouncements.SelectedRows.Count == 0)
         {
             ClearDetailPanel();
@@ -524,9 +542,12 @@ public partial class MainForm : Form
     {
         if (_selectedItem != item) _applicationTracking.Bind(item.Record);
         _selectedItem = item;
+        _btnOpenKariyerKapisi.Text = item.Record.Source == AnnouncementSource.KamuIlan ? "📄 Kamu İlan PDF" : "🌐 Kariyer Kapısı İlanı";
+        _btnOpenEDevlet.Text = "📝 Resmî Başvuru";
+        _btnOpenEDevlet.Enabled = !string.IsNullOrWhiteSpace(item.Record.ApplicationUrl);
 
         _lblDetailInstitution.Text = item.Record.InstitutionName;
-        _lblDetailTitle.Text = item.Record.Title;
+        _lblDetailTitle.Text = $"{item.Record.Source.DisplayName()} — {item.Record.Title}";
 
         var startStr = AppTime.Format(item.Record.StartDate, "-");
         var endStr = AppTime.Format(item.Record.EndDate, "-");
@@ -599,6 +620,8 @@ public partial class MainForm : Form
                         };
                         AppendDetailText($"• {condition.CriterionName} — {conditionStatus}\n", textColor, bold: true);
                         AppendDetailText(condition.Explanation + "\n\n", textColor, indent: 18);
+                        if (item.Record.Source == AnnouncementSource.KamuIlan && !string.IsNullOrWhiteSpace(condition.SourceText))
+                            AppendDetailText($"İlandaki şart: {condition.SourceText}\n\n", textColor, indent: 18);
                     }
                 }
                 else
@@ -675,14 +698,41 @@ public partial class MainForm : Form
         }
     }
 
-    private void GridAnnouncements_CellDoubleClick(object? sender, DataGridViewCellEventArgs e)
+    private async void GridAnnouncements_CellDoubleClick(object? sender, DataGridViewCellEventArgs e)
     {
         if (e.RowIndex < 0 || e.ColumnIndex == _gridAnnouncements.Columns["Checked"]!.Index) return;
 
         var item = _gridAnnouncements.Rows[e.RowIndex].Tag as AnnouncementDisplayItem;
         if (item == null) return;
 
-        OpenUrl(GetAnnouncementDetailUrl(item.Record));
+        await OpenAnnouncementAsync(item.Record);
+    }
+
+    private async Task OpenAnnouncementAsync(AnnouncementRecord record)
+    {
+        if (record.Source != AnnouncementSource.KamuIlan)
+        {
+            OpenUrl(GetAnnouncementDetailUrl(record));
+            return;
+        }
+        _btnOpenKariyerKapisi.Enabled = false;
+        _btnOpenSelectedAnnouncements.Enabled = false;
+        try
+        {
+            var documents = _serviceProvider.GetRequiredService<AnnouncementDocumentService>();
+            var path = await documents.GetKamuPdfPathAsync(record);
+            Process.Start(new ProcessStartInfo { FileName = path, UseShellExecute = true });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Kamu İlan PDF açılamadı: {Guid}", record.Guid);
+            MessageBox.Show($"İlan PDF'si açılamadı: {ex.Message}", "Kamu İlan Belgesi", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        }
+        finally
+        {
+            _btnOpenKariyerKapisi.Enabled = true;
+            _btnOpenSelectedAnnouncements.Enabled = true;
+        }
     }
 
     private async Task SendSelectedToTelegramAsync()

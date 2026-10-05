@@ -90,11 +90,15 @@ public static class Program
 
         // 4. Register HTTP Clients & Core Services
         builder.Services.AddHttpClient<CareerGateClient>();
+        builder.Services.AddHttpClient<KamuIlanClient>();
         builder.Services.AddHttpClient<TelegramNotifier>().RemoveAllLoggers(); // Telegram URLs contain the credential.
         builder.Services.AddSingleton<ConfigurationStore>();
         builder.Services.AddSingleton(profileStore);
 
         builder.Services.AddSingleton<DocumentReader>();
+        builder.Services.AddSingleton<PdfAnnouncementReader>();
+        builder.Services.AddSingleton<AnnouncementPdfCache>();
+        builder.Services.AddSingleton<AnnouncementDocumentService>();
         builder.Services.AddSingleton<RequirementExtractor>();
         builder.Services.AddSingleton<EligibilityEvaluator>();
         builder.Services.AddSingleton<ChangeDetector>();

@@ -2,6 +2,7 @@ namespace KariyerTakip.Models;
 
 public class AnnouncementRecord
 {
+    public AnnouncementSource Source { get; set; } = AnnouncementSource.CareerGate;
     public string Guid { get; set; } = string.Empty;
     public string InstitutionName { get; set; } = string.Empty;
     public string UnitName { get; set; } = string.Empty;
@@ -12,6 +13,7 @@ public class AnnouncementRecord
     public DateTime? StartDate { get; set; }
     public DateTime? EndDate { get; set; }
     public string RawGeneralText { get; set; } = string.Empty;
+    public string GeneralConditionsText { get; set; } = string.Empty;
     public string RawContentHash { get; set; } = string.Empty;
     public DateTime FirstSeenAt { get; set; } = DateTime.UtcNow;
     public DateTime LastCheckedAt { get; set; } = DateTime.UtcNow;
