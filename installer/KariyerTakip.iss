@@ -1,26 +1,37 @@
 #define AppName "KariyerTakip"
-#define AppVersion "1.0.0"
+#define AppVersion "1.1.0"
 #define Root ".."
 
 [Setup]
+#ifdef TestBuild
+AppId=KariyerTakip-Installer-SmokeTest
+#else
 AppId={{F2C77385-94DF-4E09-B61D-AAB3E9ED0C94}
+#endif
 AppName={#AppName}
 AppVersion={#AppVersion}
 AppPublisher=KariyerTakip
 AppPublisherURL=https://github.com/cumakaya0000/kariyerTakip
 AppSupportURL=https://github.com/cumakaya0000/kariyerTakip/issues
-DefaultDirName={localappdata}\Programs\KariyerTakip
+DefaultDirName={autopf}\KariyerTakip
 DefaultGroupName=KariyerTakip
 DisableProgramGroupPage=yes
 DisableDirPage=no
 DisableWelcomePage=no
-PrivilegesRequired=lowest
+PrivilegesRequired=admin
+PrivilegesRequiredOverridesAllowed=dialog
+SetupArchitecture=x86
+ArchitecturesInstallIn64BitMode=x64os arm64
 #ifdef X64Only
 ArchitecturesAllowed=x64os
 #else
 ArchitecturesAllowed=x86compatible
 #endif
 MinVersion=10.0.17763
+#ifdef TestBuild
+OutputDir={#Root}\artifacts\test-installer
+OutputBaseFilename=KariyerTakip-Kurulum-Test
+#else
 #ifdef NoTempSetup
 OutputDir={#Root}\artifacts\KariyerTakip-x64-TempYok
 UseSetupLdr=no
@@ -32,11 +43,16 @@ OutputBaseFilename=KariyerTakip-Kurulum-x64
 #else
 OutputBaseFilename=KariyerTakip-Kurulum
 #endif
+#endif
 SetupIconFile={#Root}\Assets\kt.ico
 UninstallDisplayIcon={app}\KariyerTakip.exe
 UninstallDisplayName=KariyerTakip
 Uninstallable=yes
+#ifdef TestBuild
+AppMutex=Global\KariyerTakip-Installer-SmokeTest
+#else
 AppMutex=Global\KariyerTakip
+#endif
 SetupMutex=KariyerTakipSetup
 WizardStyle=modern dynamic windows11
 WizardSizePercent=120
@@ -59,8 +75,8 @@ SignedUninstaller=yes
 Name: "turkish"; MessagesFile: "compiler:Languages\Turkish.isl"
 
 [Tasks]
-Name: "desktopicon"; Description: "Masaüstünde KT simgeli kısayol oluştur"; GroupDescription: "Kısayollar:"
-Name: "startup"; Description: "KariyerTakip'i Windows ile birlikte başlat"; GroupDescription: "Başlangıç: (daha sonra Ayarlar ekranından değiştirilebilir)"; Flags: unchecked
+Name: "desktopicon"; Description: "Masaüstünde KT simgeli kısayol oluştur"; GroupDescription: "Kısayollar:"; Flags: unchecked
+Name: "startmenuicon"; Description: "Başlat menüsüne program ve kaldırma kısayolları ekle"; GroupDescription: "Kısayollar:"
 
 [Files]
 #ifndef X64Only
@@ -79,23 +95,21 @@ Source: "{#Root}\SECURITY.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#Root}\scripts\ZamanlanmisTarama.bat"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
-Name: "{group}\KariyerTakip"; Filename: "{app}\KariyerTakip.exe"; WorkingDir: "{app}"; IconFilename: "{app}\kt.ico"
-Name: "{group}\KariyerTakip'i Kaldır"; Filename: "{uninstallexe}"
-Name: "{userdesktop}\KariyerTakip"; Filename: "{app}\KariyerTakip.exe"; WorkingDir: "{app}"; IconFilename: "{app}\kt.ico"; Tasks: desktopicon
-
-[Registry]
-Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "KariyerTakip"; ValueData: """{app}\KariyerTakip.exe"""; Flags: uninsdeletevalue; Tasks: startup
+Name: "{group}\KariyerTakip"; Filename: "{app}\KariyerTakip.exe"; WorkingDir: "{app}"; IconFilename: "{app}\kt.ico"; Tasks: startmenuicon
+Name: "{group}\KariyerTakip'i Kaldır"; Filename: "{uninstallexe}"; Tasks: startmenuicon
+Name: "{autodesktop}\KariyerTakip"; Filename: "{app}\KariyerTakip.exe"; WorkingDir: "{app}"; IconFilename: "{app}\kt.ico"; Tasks: desktopicon
 
 [Run]
-Filename: "{app}\KariyerTakip.exe"; Description: "Kurulum tamamlandığında KariyerTakip'i aç"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\KariyerTakip.exe"; WorkingDir: "{app}"; Description: "KariyerTakip'i şimdi aç"; Flags: nowait postinstall skipifsilent unchecked runasoriginaluser
+Filename: "{app}"; Description: "Kurulum klasörünü aç"; Flags: shellexec postinstall skipifsilent unchecked runasoriginaluser
 
 [Messages]
 WelcomeLabel1=KT ile kamu ilanlarını daha kolay takip edin
 WelcomeLabel2=KariyerTakip; ilanları öğrenim, KPSS, şehir ve tecrübe bilgilerinizle karşılaştırır. Başvurularınızı ve son tarihleri tek ekranda takip etmenizi sağlar.%n%nBu sihirbaz programı tanıtır, kurulum klasörünü seçtirir ve başlangıç tercihlerinizi sorar.%n%nDevam etmek için İleri düğmesine basın.
 SelectDirDesc=Programın kurulacağı klasörü seçin.
 SelectDirLabel3=Program dosyaları bu klasöre kurulacak. Profil, ilan ve Telegram ayarlarınız kullanıcı hesabınızın ayrı veri klasöründe saklanır. Farklı bir konum seçmek için Gözat düğmesini kullanın.
-SelectTasksDesc=Kısayol ve Windows başlangıç tercihlerinizi belirleyin.
-SelectTasksLabel2=Masaüstü kısayoluyla programı kolayca açabilirsiniz. Windows ile başlatma isteğe bağlıdır; otomatik periyodik tarama anlamına gelmez. Son ekranda programın hemen açılıp açılmayacağını seçebilirsiniz.
+SelectTasksDesc=Kısayol tercihlerinizi belirleyin.
+SelectTasksLabel2=İstediğiniz kısayolları işaretleyin. Son ekranda programı hemen açmayı ve kurulum klasörünü göstermeyi ayrıca seçebilirsiniz. Windows ile başlatmayı daha sonra programın Telegram ve Sistem sekmesinden etkinleştirebilirsiniz.
 ReadyLabel1=Tercihlerinizi kontrol edin. Yükle düğmesi programı seçtiğiniz klasöre kurar.
 InstallingLabel=KT program dosyaları ve seçtiğiniz kısayollar hazırlanıyor. Kurulum bittikten sonra Profilim ekranında bölümünüzü, KPSS puanınızı ve şehirlerinizi seçebilirsiniz.
 FinishedHeadingLabel=KariyerTakip kullanıma hazır
@@ -181,19 +195,38 @@ begin
     'Profiliniz bu Windows hesabında saklanır. Uygulama e-Devlet şifresi istemez. Başvuru resmî sitede yapılır; sonuçlar bir başvuru garantisi değildir.';
 end;
 
-procedure CurStepChanged(CurStep: TSetupStep);
+procedure CurPageChanged(CurPageID: Integer);
 begin
-  if CurStep = ssPostInstall then
+  if CurPageID = wpInstalling then
   begin
-    if not WizardIsTaskSelected('startup') then
-      RegDeleteValue(HKCU, 'Software\Microsoft\Windows\CurrentVersion\Run', 'KariyerTakip');
+    WizardForm.StatusLabel.Caption := 'Kurulum konumu: ' + ExpandConstant('{app}');
   end;
+  if CurPageID = wpFinished then
+  begin
+    WizardForm.FinishedLabel.Caption :=
+      'KariyerTakip başarıyla kuruldu.' + #13#10#13#10 +
+      'Kurulum konumu: ' + ExpandConstant('{app}') + #13#10#13#10 +
+      'Aşağıdan programı açmayı veya kurulum klasörünü göstermeyi seçebilirsiniz.' + #13#10 +
+      'Denetim Masası > Programlar ve Özellikler üzerinden kaldırabilirsiniz.';
+  end;
+end;
+
+function InitializeUninstall: Boolean;
+begin
+#ifdef TestBuild
+  Result := True;
+#else
+  Result := not CheckForMutexes('Global\KariyerTakip');
+  if not Result then
+    MsgBox('KariyerTakip açık. Pencereyi ve sistem tepsisindeki programı kapatıp kaldırmayı yeniden başlatın.', mbInformation, MB_OK);
+#endif
 end;
 
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 begin
   if CurUninstallStep = usPostUninstall then
   begin
+#ifndef TestBuild
     RegDeleteValue(HKCU, 'Software\Microsoft\Windows\CurrentVersion\Run', 'KariyerTakip');
     { Personal data is deliberately retained unless the user explicitly chooses deletion. }
     if not UninstallSilent then
@@ -215,6 +248,8 @@ begin
         { Only fixed application-owned directories are removed; custom paths are not followed. }
         DelTree(ExpandConstant('{localappdata}\KariyerTakip\logs'), True, True, True);
         DelTree(ExpandConstant('{localappdata}\KariyerTakip\feedback-fixtures'), True, True, True);
+        DelTree(ExpandConstant('{localappdata}\KariyerTakip\documents'), True, True, True);
       end;
+#endif
   end;
 end;

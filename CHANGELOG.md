@@ -1,5 +1,13 @@
 # Değişiklikler
 
+## 1.1.0 — Standart Windows kurulumu — 2026-10-05
+
+- Windows Program Files altında tüm kullanıcılar için kurulum ve yalnızca mevcut hesaba kurma seçeneği eklendi; x86/x64/ARM64 uygulamaları aynı pakette seçilir.
+- Masaüstü ve Başlat menüsü kısayolları ayrı sorulur; kurulum sonunda konum gösterilir, programı veya klasörünü açma isteğe bağlıdır.
+- Denetim Masası kaldırma kaydı, çalışan program kontrolü ve varsayılan olarak kişisel verileri koruma akışı tamamlandı.
+- Kurulum sonunda uygulama ilk oturumun kullanıcı yetkileriyle açılır. Windows ile başlatma programın kullanıcıya ait ayarlarından yönetilir.
+- Kurulum/kaldırma ve uygulama dosyaları için mevcut sertifikayla imzalama desteği genişletildi.
+
 ## Yerel geliştirme — 2026-10-05
 
 - Varsayılan pencere 1080×700, en küçük pencere 900×600 olacak şekilde arayüz sıkılaştırıldı; üst başlık, düğmeler, profil alanları ve ayrıntı metni küçültüldü.

@@ -32,12 +32,24 @@ Görseller sentetik test verileriyle oluşturulmuştur; kişisel ayar veya gerç
 
 ## Hızlı Başlangıç ve Çalıştırma
 
-### 1. Hazır Doğrudan Çalıştırılabilir EXE (Önerilen)
+### 1. Standart Windows kurulumu (Önerilen)
+
+**[KariyerTakip kurulum EXE'sini indir](https://github.com/cumakaya0000/kariyerTakip/releases/download/kurulum-2026-10-05/KariyerTakip-Kurulum.exe)** ve çift tıklayın. Paket güncel kompakt arayüzü ve .NET çalışma zamanını içerir; x86, x64 ve ARM64 için uygun uygulamayı seçer. Windows 10 (1809 veya sonrası) / Windows 11 gerekir.
+
+1. **Kurulum kapsamı:** tüm kullanıcılar veya yalnızca kendi hesabınız. Tüm kullanıcılar için kurulum Windows yönetici onayı ister.
+2. **Kurulum konumu:** varsayılan olarak Windows'un Program Files klasöründe `KariyerTakip`; normal bir C sürücülü sistemde `C:\Program Files\KariyerTakip`. Yalnızca kendi hesabınıza kurulumda `%LOCALAPPDATA%\Programs\KariyerTakip` kullanılır. Gözat ile değiştirilebilir; eski kurulumlar güncellenirken önceki klasör korunur.
+3. **Kısayollar:** masaüstü kısayolu ve Başlat menüsü kısayolları ayrı seçeneklerdir.
+4. **Yüklemeye hazır:** seçilen klasör ve kısayolların özetini kontrol edip Yükle'ye basın.
+5. **Tamamlandı:** kurulum konumu tekrar gösterilir. Programı hemen açmak ve kurulum klasörünü göstermek ayrı, isteğe bağlı seçeneklerdir.
+
+**Denetim Masası > Programlar ve Özellikler** veya **Windows Ayarları > Uygulamalar** içindeki KariyerTakip kaydıyla kaldırabilirsiniz. Kaldırma, açık programı önce kapatmanızı ister; kişisel verilerin silinmesi ayrıca sorulur ve varsayılan tercih onları korumaktır. Profil ve ilan verileri her Windows hesabının kendi `%LOCALAPPDATA%\KariyerTakip` klasöründe saklanır. Windows ile başlatmayı kullanıcılar programın **Telegram & Sistem** sekmesinden etkinleştirebilir.
+
+### 2. Kurulumsuz EXE / ZIP
 
 Kurulum yapmaya veya .NET SDK yüklemeye gerek kalmadan programı doğrudan çalıştırmak için:
 
-- **[Kompakt sürüm EXE'yi indir](https://github.com/cumakaya0000/kariyerTakip/releases/download/kompakt-2026-10-05/KariyerTakip-Kompakt.exe)** — açık olan KariyerTakip'i tepsi simgesinden de kapatın, ardından indirdiğiniz EXE'yi çalıştırın.
-- **[Windows x64 ZIP paketini indir](https://github.com/cumakaya0000/kariyerTakip/releases/download/kompakt-2026-10-05/KariyerTakip-Kompakt-win-x64.zip)** — klasöre çıkarıp içindeki `KariyerTakip.exe` dosyasını çalıştırın.
+- **[Windows x64 EXE'yi indir](https://github.com/cumakaya0000/kariyerTakip/releases/download/kurulum-2026-10-05/KariyerTakip.exe)** — açık olan KariyerTakip'i tepsi simgesinden de kapatın, ardından indirdiğiniz EXE'yi çalıştırın.
+- **[Windows x64 ZIP paketini indir](https://github.com/cumakaya0000/kariyerTakip/releases/download/kurulum-2026-10-05/KariyerTakip-win-x64.zip)** — klasöre çıkarıp içindeki `KariyerTakip.exe` dosyasını çalıştırın.
 - **[Tüm sürümler ve indirmeler](https://github.com/cumakaya0000/kariyerTakip/releases)** — sürüm notları ve dosyaların SHA256 sağlama toplamları.
 
 **05.10.2026 kompakt sürümü:** 1080×700 varsayılan pencere, en az 900×600 boyut; daha küçük düğmeler ve boşluklar. Açık/koyu temada tarih alanı, tablo seçim renkleri, devre dışı düğmeler, uyarı etiketleri ve sütun menüsü düzeltildi. SBB PDF desteği, yeni ilan filtreleri ve CSV aktarımı bu sürüme dahildir.
@@ -45,14 +57,8 @@ Kurulum yapmaya veya .NET SDK yüklemeye gerek kalmadan programı doğrudan çal
 > [!NOTE]
 > **Windows Uygulama Denetimi (Hata 4551) Uyarısı:**
 > Standart Inno Setup kurulum sihirbazları `%TEMP%` klasörüne geçici `.tmp` dosyası açıp çalıştırdığı için Windows 11 Akıllı Uygulama Denetimi (Smart App Control) tarafından engellenebilir (Hata 4551). Doğrudan çalıştırılabilir EXE kurulum sihirbazını gerektirmez; ancak EXE ve .NET'in çıkardığı dosyalar da Windows güvenlik ilkesine tabidir. Uygulama denetimi engellerse aşağıdaki sorun giderme bölümünü inceleyin.
-
-### 2. Kurulum Sihirbazı ile Kurulum
-
-`KariyerTakip-Kurulum.exe` KT simgeli Türkçe kurulum sihirbazıdır. Windows 10 (1809 veya sonrası) ve Windows 11 için x86, x64 veya ARM64 sürümünü otomatik seçer; .NET çalışma zamanı pakete dahildir.
-
-Sihirbaz programı tanıtır, kurulum klasörünü seçtirir ve masaüstü kısayolu / Windows ile başlatma kutularını sunar. Varsayılan konum `%LOCALAPPDATA%\Programs\KariyerTakip` olduğu için yönetici hesabı gerekmez.
-
-Denetim Masası > Programlar ve Özellikler veya Windows Ayarları > Uygulamalar bölümündeki **KariyerTakip** kaydıyla kaldırabilirsiniz.
+>
+> Yerel yayın paketi geliştirme sertifikasıyla imzalanır; bu sertifika genel olarak güvenilir bir yayıncı sertifikası değildir. 05.10.2026 yerel kurulum testinde Smart App Control, imzalı geçici sihirbaz dosyasını engelledi. Korumaları kapatmadan bu ilkeyi karşılamak için güvenilir bir kod imzalama sertifikasıyla yayın gerekir. Kurulum/kaldırma regresyon kontrolü ayrıca Windows GitHub Actions ortamında çalışır.
 
 ### 3. Kaynak Koddan Derleme ve Çalıştırma
 
@@ -178,7 +184,10 @@ Arayüz ve ekran olmadan çalışan görev aynı `Global\KariyerTakip` mutex'ini
 
 Kurulum exe'sini yeniden oluşturmak için Inno Setup 7 gerekir: `./scripts/BuildInstaller.ps1 -CompilerPath 'ISCC.exe tam yolu'`. Betik üç mimariyi yayınlar, `installer/KariyerTakip.iss` dosyasını derler ve exe'nin yanına SHA256 dosyası yazar. `PrepareInstallerCompiler.ps1`, resmi ve yayıncı imzası doğrulanan Inno Setup 7.1.0 derleyicisini çalışma alanına portable olarak hazırlar; sisteme kaldırma kaydı eklemez. Yayın iş akışı ZIP ile birlikte kurulum exe'sini de üretir.
 
+Kurulum regresyon kontrolü için yayın dosyaları hazırken `./scripts/TestInstaller.ps1` çalıştırın. Betik farklı bir test uygulama kimliğiyle çalışma alanına sessiz kurulum yapar; kaldırma kaydını, EXE hashini ve Başlat menüsü kısayollarını kontrol edip test kurulumunu kaldırır. Gerçek uygulamanın kişisel verilerini kullanmaz. Derleyici ve Windows uygulama denetimi çalıştırmaya izin vermelidir.
+
 - `.github/workflows/ci.yml`: `main` push ve PR'larda `windows-latest` ile Release derlemesi ve çözüm testleri; TRX raporu artifact olarak saklanır.
+- `.github/workflows/installer-check.yml`: kurulum değişikliklerinde ayrı test kimliğiyle Windows kurulum/kaldırma kontrolü; kaldırma kaydı, kısayollar ve EXE doğrulanır.
 - `.github/workflows/release.yml`: elle çalıştırıldığında test edilmiş Windows zip artifact'i oluşturur. `v*` etiketi gönderildiğinde aynı paket GitHub Releases'e yüklenir.
 - Yerel paket: normal PowerShell oturumunda `& ./scripts/Publish.ps1` çalıştırın. Betik çalıştırma ilkeniz izin vermiyorsa CI iş akışını kullanın.
 - Paket exe, örnek ayarlar, belgeler, ekran görüntüleri, sağlama toplamı, Görev Zamanlayıcı ve kaldırma betiklerini içerir; kişisel veri içermez.

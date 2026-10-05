@@ -23,6 +23,8 @@ jobs:
       - shell: pwsh
         run: ./scripts/BuildInstaller.ps1
       - shell: pwsh
+        run: ./scripts/TestInstaller.ps1
+      - shell: pwsh
         run: |
           New-Item -ItemType Directory -Path artifacts/release-assets -Force | Out-Null
           Copy-Item -LiteralPath artifacts/publish/win-x64/KariyerTakip.exe -Destination artifacts/release-assets/KariyerTakip.exe
@@ -55,4 +57,10 @@ jobs:
           RELEASE_REPO: ${{ github.repository }}
         run: |
           $assets = Get-ChildItem -Path release-assets -File | ForEach-Object { $_.FullName }
-          gh release create "$env:RELEASE_TAG" @assets --repo "$env:RELEASE_REPO" --notes-file CHANGELOG.md --clobber
+          gh release view "$env:RELEASE_TAG" --repo "$env:RELEASE_REPO" 2>$null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create "$env:RELEASE_TAG" --repo "$env:RELEASE_REPO" --notes-file CHANGELOG.md
+            if ($LASTEXITCODE -ne 0) { throw 'Release oluşturulamadı.' }
+          }
+          gh release upload "$env:RELEASE_TAG" @assets --repo "$env:RELEASE_REPO" --clobber
+          if ($LASTEXITCODE -ne 0) { throw 'Release dosyaları yüklenemedi.' }
