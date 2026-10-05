@@ -30,7 +30,7 @@ jobs:
         run: ./scripts/PrepareInstallerCompiler.ps1
       - shell: pwsh
         run: ./scripts/TestInstaller.ps1
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: installer-test-logs
