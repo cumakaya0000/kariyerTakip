@@ -14,8 +14,8 @@ public sealed class ProfileEditorControl : UserControl
     private readonly ComboBox _level = Choices("Ön Lisans", "Lisans", "Ortaöğretim / Lise", "Yüksek Lisans");
     private readonly ComboBox _graduation = Choices("Mezun", "Öğrenci", "Bilinmiyor");
     private readonly ComboBox _kpssStatus = Choices("Var", "Yok", "Bilinmiyor");
-    private readonly DataGridView _scores = new() { Height = 130, BackgroundColor = System.Drawing.Color.White, RowHeadersVisible = false, AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill, AllowUserToAddRows = true };
-    private readonly DateTimePicker _birth = new() { Format = DateTimePickerFormat.Short, ShowCheckBox = true };
+    private readonly DataGridView _scores = new() { Height = 110, BackgroundColor = System.Drawing.Color.White, RowHeadersVisible = false, AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill, AllowUserToAddRows = true };
+    private readonly ThemeDateTimePicker _birth = new() { Format = DateTimePickerFormat.Short, ShowCheckBox = true };
     private readonly ComboBox _military = Choices("Muaf / Yapıldı", "Tecilli", "Yapılmadı", "Bilinmiyor");
     private readonly NumericUpDown _months = new() { Minimum = 0, Maximum = 1200 };
     private readonly TextBox _field = new();
@@ -24,8 +24,8 @@ public sealed class ProfileEditorControl : UserControl
     private readonly MultiChoiceControl _cities = new(ProfileChoices.Cities, "Seçim yoksa tüm Türkiye'deki ilanlar değerlendirilir.");
     private readonly MultiChoiceControl _licenses = new(ProfileChoices.Licenses, "Ehliyetiniz yoksa listeyi boş bırakın.");
     private readonly TextBox _certificates = new();
-    private readonly CheckedListBox _work = new() { Height = 95, CheckOnClick = true };
-    private readonly Button _save = new() { Text = "Profili kaydet ve ilanları yeniden değerlendir", AutoSize = true, Height = 40 };
+    private readonly CheckedListBox _work = new() { Height = 80, CheckOnClick = true };
+    private readonly Button _save = new() { Text = "Profili kaydet ve ilanları yeniden değerlendir", AutoSize = true, Height = 34 };
     private bool _loading;
     public event Action<ProfileOptions>? ActiveProfileChanged;
     [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
@@ -40,7 +40,7 @@ public sealed class ProfileEditorControl : UserControl
         _active = _catalog.Profiles.First(p => p.Name == _catalog.ActiveName);
         Dock = DockStyle.Fill;
         AutoScroll = true;
-        var layout = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, ColumnCount = 2, Padding = new Padding(24) };
+        var layout = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, ColumnCount = 2, Padding = new Padding(14) };
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 180));
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         var profileActions = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Fill };
@@ -182,10 +182,10 @@ public sealed class ProfileEditorControl : UserControl
     {
         var row = layout.RowCount++;
         layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        layout.Controls.Add(new Label { Text = label, AutoSize = true, Margin = new Padding(0, 8, 12, 12) }, 0, row);
+        layout.Controls.Add(new Label { Text = label, AutoSize = true, Margin = new Padding(0, 6, 10, 6) }, 0, row);
         control.Dock = control is Button ? DockStyle.None : DockStyle.Top;
         control.Anchor = AnchorStyles.Left | AnchorStyles.Top;
-        control.Margin = new Padding(0, 4, 0, 12);
+        control.Margin = new Padding(0, 3, 0, 6);
         layout.Controls.Add(control, 1, row);
     }
     private static void ShowError(Exception ex) => MessageBox.Show("Profil kaydedilemedi: " + ex.Message, "Profil hatası", MessageBoxButtons.OK, MessageBoxIcon.Warning);

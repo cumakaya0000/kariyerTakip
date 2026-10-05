@@ -8,6 +8,7 @@ public partial class MainForm
 {
     private Label _lblListSummary = null!;
     private Button _btnExportAnnouncements = null!;
+    private ContextMenuStrip _columnMenu = null!;
 
     private void SelectVisibleAnnouncements(bool selected)
     {
@@ -27,7 +28,7 @@ public partial class MainForm
 
     private void SetupColumnMenu()
     {
-        var menu = new ContextMenuStrip();
+        var menu = _columnMenu = new ContextMenuStrip();
         foreach (DataGridViewColumn column in _gridAnnouncements.Columns)
         {
             if (column.Name is "Checked" or "Title") continue;

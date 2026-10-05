@@ -2,6 +2,9 @@
 
 ## Yerel geliştirme — 2026-10-05
 
+- Varsayılan pencere 1080×700, en küçük pencere 900×600 olacak şekilde arayüz sıkılaştırıldı; üst başlık, düğmeler, profil alanları ve ayrıntı metni küçültüldü.
+- Koyu temada tarih alanı, tablo başlık/seçim renkleri, devre dışı düğmeler ve sütun menüsü düzeltildi; uyarı etiketleri daha okunabilir hale getirildi.
+- İlan kaynakları arasında geçişte ortak görünümün fontu korunarak çizim hatası giderildi; tema ve küçük pencere regresyon kontrolleri genişletildi.
 - İlan listesine başvuru durumu ve son tarih filtreleri, Türkçe kurum/unvan/şehir araması ve sütun başlıklarından sıralama eklendi.
 - Kalan süre ve kadro sayısı sütunları, yaklaşan son tarih vurgusu, liste özeti ve sağ tıkla sütun görünürlüğü eklendi.
 - Görünen ilanları topluca seçme, seçimleri temizleme ve seçili ilanları UTF-8 CSV dosyasına aktarma eklendi; seçimler filtreleme/sıralamada korunur.

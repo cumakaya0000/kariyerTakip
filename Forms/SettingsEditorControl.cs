@@ -21,7 +21,7 @@ public sealed class SettingsEditorControl : UserControl
     {
         _config = config;
         Dock = DockStyle.Fill; AutoScroll = true;
-        var layout = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, ColumnCount = 2, Padding = new Padding(24) };
+        var layout = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, ColumnCount = 2, Padding = new Padding(14) };
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 210));
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         ProfileEditorControl.AddRow(layout, "Bildirim", _enabled);

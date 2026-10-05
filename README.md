@@ -19,6 +19,7 @@ Bu proje resmî değildir; kişisel kullanım için dokümante edilmemiş kamuya
 - Profil değişince önbellekteki kadroları yerel olarak yeniden değerlendirme.
 - Telegram bildirim kuyruğu, parça ilerlemesini saklama ve son başvuru hatırlatmaları.
 - Sistem tepsisine küçültme ve isteğe bağlı Windows ile başlatma.
+- Kompakt 1080×700 pencere (en az 900×600), daha küçük boşluklar ve açık/koyu tema; dar alanda satır kaydıran araç düğmeleri.
 - Ekransız tarama, UTC dosya günlükleri ve Windows x64 tek dosya yayın paketi.
 
 ## Ekran görüntüleri
@@ -34,8 +35,12 @@ Görseller sentetik test verileriyle oluşturulmuştur; kişisel ayar veya gerç
 ### 1. Hazır Doğrudan Çalıştırılabilir EXE (Önerilen)
 
 Kurulum yapmaya veya .NET SDK yüklemeye gerek kalmadan programı doğrudan çalıştırmak için:
-* Depodaki [`dist/KariyerTakip.exe`](dist/KariyerTakip.exe) dosyasını indirin ve çift tıklayarak doğrudan çalıştırın.
-* Alternatif olarak tüm dosyaları içeren [`dist/KariyerTakip-win-x64.zip`](dist/KariyerTakip-win-x64.zip) arşivini indirip bir klasöre çıkartabilir ve içindeki `KariyerTakip.exe` dosyasını kullanabilirsiniz.
+
+- **[Kompakt sürüm EXE'yi indir](https://github.com/cumakaya0000/kariyerTakip/releases/download/kompakt-2026-10-05/KariyerTakip-Kompakt.exe)** — açık olan KariyerTakip'i tepsi simgesinden de kapatın, ardından indirdiğiniz EXE'yi çalıştırın.
+- **[Windows x64 ZIP paketini indir](https://github.com/cumakaya0000/kariyerTakip/releases/download/kompakt-2026-10-05/KariyerTakip-Kompakt-win-x64.zip)** — klasöre çıkarıp içindeki `KariyerTakip.exe` dosyasını çalıştırın.
+- **[Tüm sürümler ve indirmeler](https://github.com/cumakaya0000/kariyerTakip/releases)** — sürüm notları ve dosyaların SHA256 sağlama toplamları.
+
+**05.10.2026 kompakt sürümü:** 1080×700 varsayılan pencere, en az 900×600 boyut; daha küçük düğmeler ve boşluklar. Açık/koyu temada tarih alanı, tablo seçim renkleri, devre dışı düğmeler, uyarı etiketleri ve sütun menüsü düzeltildi. SBB PDF desteği, yeni ilan filtreleri ve CSV aktarımı bu sürüme dahildir.
 
 > [!NOTE]
 > **Windows Uygulama Denetimi (Hata 4551) Uyarısı:**

@@ -101,25 +101,25 @@ public partial class MainForm : Form
     {
         Text = "KariyerTakip — Kamu İlan Asistanı";
         Icon = AppBrand.CreateIcon();
-        Size = new Size(1220, 800);
-        MinimumSize = new Size(1020, 680);
+        Size = new Size(1080, 700);
+        MinimumSize = new Size(900, 600);
         StartPosition = FormStartPosition.CenterScreen;
-        Font = new Font("Segoe UI", 9.5f, FontStyle.Regular);
+        Font = new Font("Segoe UI", 9f, FontStyle.Regular);
         BackColor = Color.FromArgb(244, 246, 249);
 
         // 1. Top Header Bar
         var topPanel = new Panel
         {
             Dock = DockStyle.Top,
-            Height = 112,
+            Height = 86,
             BackColor = Color.FromArgb(15, 37, 65),
-            Padding = new Padding(15, 10, 15, 10)
+            Padding = new Padding(12, 6, 12, 6)
         };
 
         var lblAppTitle = new Label
         {
             Text = "💼 KariyerTakip",
-            Font = new Font("Segoe UI", 15, FontStyle.Bold),
+            Font = new Font("Segoe UI", 13, FontStyle.Bold),
             ForeColor = Color.White,
             AutoSize = true,
             Location = new Point(15, 12)
@@ -141,7 +141,7 @@ public partial class MainForm : Form
             ForeColor = Color.White,
             BackColor = Color.FromArgb(0, 122, 255),
             FlatStyle = FlatStyle.Flat,
-            Size = new Size(130, 42),
+            Size = new Size(120, 34),
             Cursor = Cursors.Hand,
             Anchor = AnchorStyles.Top | AnchorStyles.Right,
             Location = new Point(topPanel.Width - 145, 15)
@@ -156,7 +156,7 @@ public partial class MainForm : Form
             ForeColor = Color.White,
             BackColor = Color.FromArgb(220, 53, 69),
             FlatStyle = FlatStyle.Flat,
-            Size = new Size(80, 42),
+            Size = new Size(74, 34),
             Cursor = Cursors.Hand,
             Enabled = false,
             Anchor = AnchorStyles.Top | AnchorStyles.Right,
@@ -183,7 +183,7 @@ public partial class MainForm : Form
             ForeColor = Color.Gold,
             BackColor = Color.FromArgb(35, 60, 90),
             FlatStyle = FlatStyle.Flat,
-            Size = new Size(65, 42),
+            Size = new Size(60, 34),
             Cursor = Cursors.Hand,
             Anchor = AnchorStyles.Top | AnchorStyles.Right,
             Location = new Point(topPanel.Width - 285, 15)
@@ -195,7 +195,7 @@ public partial class MainForm : Form
         headerLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         headerLayout.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         headerLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        headerLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 30));
+        headerLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 24));
         var titleLayout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 2 };
         titleLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         titleLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
@@ -226,8 +226,8 @@ public partial class MainForm : Form
         _tabControl = new ThemeTabControl
         {
             Dock = DockStyle.Fill,
-            Padding = new Point(15, 8),
-            Font = new Font("Segoe UI", 10, FontStyle.Regular)
+            Padding = new Point(10, 5),
+            Font = new Font("Segoe UI", 9, FontStyle.Regular)
         };
 
         // Tab 1: İlanlar
@@ -237,12 +237,16 @@ public partial class MainForm : Form
         var tabKamuIlan = new TabPage("📋 Kamu İlan (SBB)") { BackColor = Color.White };
         _tabControl.TabPages.Add(tabKamuIlan);
         var announcementsView = tabAnnouncements.Controls[0];
+        // Keep the font stable while moving the shared view between source tabs.
+        announcementsView.Font = _tabControl.Font;
         _tabControl.SelectedIndexChanged += (_, _) =>
         {
             if (_tabControl.SelectedTab != tabAnnouncements && _tabControl.SelectedTab != tabKamuIlan) return;
             _selectedSource = _tabControl.SelectedTab == tabKamuIlan ? AnnouncementSource.KamuIlan : AnnouncementSource.CareerGate;
             _btnOpenKamuIlanSite.Visible = _selectedSource == AnnouncementSource.KamuIlan;
-            _tabControl.SelectedTab.Controls.Add(announcementsView);
+            announcementsView.SuspendLayout();
+            try { _tabControl.SelectedTab.Controls.Add(announcementsView); }
+            finally { announcementsView.ResumeLayout(true); }
             _checkedAnnouncementGuids.Clear();
             ApplyFilter();
         };
@@ -514,6 +518,7 @@ public partial class MainForm : Form
         _lblDetailTitle.Text = "";
         _lblDetailDates.Text = "";
         _lblDetailStatusBadge.Text = "BİLGİ";
+        _lblDetailStatusBadge.ForeColor = Color.White;
         _lblDetailStatusBadge.BackColor = Color.FromArgb(120, 130, 140);
         _rtbDetailContent.Clear();
         _applicationTracking.Bind(null);
@@ -552,11 +557,13 @@ public partial class MainForm : Form
         var startStr = AppTime.Format(item.Record.StartDate, "-");
         var endStr = AppTime.Format(item.Record.EndDate, "-");
         _lblDetailDates.Text = $"📅 Başlangıç: {startStr}  |  Bitiş: {endStr}";
+        _lblDetailStatusBadge.ForeColor = item.Status == EligibilityStatus.NeedsReview
+            ? Color.FromArgb(45, 30, 0) : Color.White;
 
         if (item.Status == EligibilityStatus.Eligible)
         {
             _lblDetailStatusBadge.Text = "✅ ŞARTLARA UYGUN KADRO VAR";
-            _lblDetailStatusBadge.BackColor = Color.FromArgb(40, 167, 69);
+            _lblDetailStatusBadge.BackColor = Color.FromArgb(25, 125, 55);
         }
         else if (item.Status == EligibilityStatus.NeedsReview)
         {
@@ -592,7 +599,7 @@ public partial class MainForm : Form
                 "Ineligible" => _isDarkMode ? Color.Salmon : Color.FromArgb(180, 45, 45),
                 _ => _isDarkMode ? Color.Gold : Color.FromArgb(145, 95, 0)
             };
-            AppendDetailText(pos.Title + "\n\n", headingColor, bold: true, size: 12);
+            AppendDetailText(pos.Title + "\n\n", headingColor, bold: true, size: 11);
             AppendDetailText(statusText + "\n\n", statusColor, bold: true);
             if (!string.IsNullOrWhiteSpace(pos.Unvan) && pos.Unvan != pos.Title)
                 AppendDetailText($"Unvan: {pos.Unvan}\n", textColor);
@@ -638,14 +645,14 @@ public partial class MainForm : Form
 
         if (!string.IsNullOrWhiteSpace(item.Record.RawGeneralText))
         {
-            AppendDetailText("İLAN METNİ\n\n", headingColor, bold: true, size: 12);
+            AppendDetailText("İLAN METNİ\n\n", headingColor, bold: true, size: 11);
             AppendDetailText(new DocumentReader().CleanAndNormalizeText(item.Record.RawGeneralText), textColor);
         }
         _rtbDetailContent.Select(0, 0);
         _rtbDetailContent.ScrollToCaret();
     }
 
-    private void AppendDetailText(string text, Color color, bool bold = false, float size = 10.5f, int indent = 0)
+    private void AppendDetailText(string text, Color color, bool bold = false, float size = 9.5f, int indent = 0)
     {
         _rtbDetailContent.Select(_rtbDetailContent.TextLength, 0);
         using var font = new Font("Segoe UI", size, bold ? FontStyle.Bold : FontStyle.Regular);

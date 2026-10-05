@@ -16,8 +16,8 @@ public partial class MainForm
             Size = new Size(1100, 600),
             Dock = DockStyle.Fill,
             Orientation = Orientation.Vertical,
-            Panel1MinSize = 350,
-            Panel2MinSize = 350,
+            Panel1MinSize = 300,
+            Panel2MinSize = 300,
             SplitterDistance = 550,
             SplitterWidth = 6,
             BackColor = Color.FromArgb(230, 235, 240)
@@ -30,7 +30,7 @@ public partial class MainForm
         };
 
         // Left Panel (Filter + Grid)
-        var leftPanel = new Panel { Dock = DockStyle.Fill, BackColor = Color.White, Padding = new Padding(10) };
+        var leftPanel = new Panel { Dock = DockStyle.Fill, BackColor = Color.White, Padding = new Padding(8) };
 
         var filterPanel = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, WrapContents = true, BackColor = Color.White, Padding = new Padding(0, 0, 0, 8) };
         var lblFilter = new Label { Text = "Filtre:", Location = new Point(0, 10), AutoSize = true, Font = new Font("Segoe UI", 9.5f, FontStyle.Bold) };
@@ -202,7 +202,7 @@ public partial class MainForm
         mainSplit.Panel1.Controls.Add(leftPanel);
 
         // Right Panel (Detailed View & Actions)
-        var rightPanel = new Panel { Dock = DockStyle.Fill, BackColor = Color.FromArgb(250, 252, 255), Padding = new Padding(15) };
+        var rightPanel = new Panel { Dock = DockStyle.Fill, BackColor = Color.FromArgb(250, 252, 255), Padding = new Padding(10) };
 
         var pnlDetailHeader = new TableLayoutPanel
         {
@@ -224,7 +224,7 @@ public partial class MainForm
         owner._lblDetailInstitution = new Label
         {
             Text = "Bir ilan seçiniz",
-            Font = new Font("Segoe UI", 12, FontStyle.Bold),
+            Font = new Font("Segoe UI", 11, FontStyle.Bold),
             ForeColor = Color.FromArgb(15, 37, 65),
             Location = new Point(0, 28),
             AutoSize = true
@@ -273,7 +273,7 @@ public partial class MainForm
         {
             Text = "🌐 Kariyer Kapısı İlanı",
             Width = 160,
-            Height = 38,
+            Height = 32,
             Location = new Point(0, 8),
             BackColor = Color.FromArgb(15, 37, 65),
             ForeColor = Color.White,
@@ -289,7 +289,7 @@ public partial class MainForm
         {
             Text = "📝 e-Devlet Başvuru",
             Width = 160,
-            Height = 38,
+            Height = 32,
             Location = new Point(170, 8),
             BackColor = Color.FromArgb(200, 30, 30),
             ForeColor = Color.White,
@@ -302,7 +302,7 @@ public partial class MainForm
         {
             Text = "📲 Telegram'a At",
             Width = 140,
-            Height = 38,
+            Height = 32,
             Location = new Point(340, 8),
             BackColor = Color.FromArgb(0, 136, 204),
             ForeColor = Color.White,
@@ -313,7 +313,7 @@ public partial class MainForm
 
         owner._btnOpenKamuIlanSite = new Button
         {
-            Text = "🌐 Kamu İlan Sitesi", Width = 160, Height = 38, Visible = false,
+            Text = "🌐 Kamu İlan Sitesi", Width = 160, Height = 32, Visible = false,
             BackColor = Color.FromArgb(15, 37, 65), ForeColor = Color.White,
             FlatStyle = FlatStyle.Flat, Cursor = Cursors.Hand
         };
@@ -322,7 +322,7 @@ public partial class MainForm
         pnlActions.Controls.Add(owner._btnOpenKamuIlanSite);
         pnlActions.Controls.Add(owner._btnOpenEDevlet);
         pnlActions.Controls.Add(owner._btnSendTelegramNow);
-        var feedback = new Button { Text = "Bu değerlendirme yanlış", AutoSize = true, Height = 38 };
+        var feedback = new Button { Text = "Bu değerlendirme yanlış", AutoSize = true, Height = 32 };
         feedback.Click += async (_, _) => await owner.SaveEvaluationFeedbackAsync();
         pnlActions.Controls.Add(feedback);
 
@@ -332,7 +332,7 @@ public partial class MainForm
             ReadOnly = true,
             BackColor = Color.White,
             BorderStyle = BorderStyle.FixedSingle,
-            Font = new Font("Segoe UI", 10.5f),
+            Font = new Font("Segoe UI", 9.5f),
             ScrollBars = RichTextBoxScrollBars.Vertical,
             DetectUrls = false
         };

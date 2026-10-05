@@ -6,6 +6,22 @@ namespace KariyerTakip.Forms;
 
 public partial class MainForm
 {
+    private readonly HashSet<Button> _themeButtons = new();
+
+    private void RegisterButtonTheme(Button button)
+    {
+        if (!_themeButtons.Add(button)) return;
+        button.Paint += (_, e) =>
+        {
+            if (!_isDarkMode || button.Enabled) return;
+            using var background = new SolidBrush(button.BackColor);
+            e.Graphics.FillRectangle(background, button.ClientRectangle);
+            using var border = new Pen(Color.FromArgb(85, 95, 110));
+            e.Graphics.DrawRectangle(border, 0, 0, button.Width - 1, button.Height - 1);
+            TextRenderer.DrawText(e.Graphics, button.Text, button.Font, button.ClientRectangle,
+                Color.FromArgb(180, 190, 205), TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
+        };
+    }
     private void ToggleTheme()
     {
         _isDarkMode = !_isDarkMode;
@@ -83,6 +99,7 @@ public partial class MainForm
                 }
             }
             ThemeHeader(topPanel);
+            foreach (var button in new[] { _btnThemeToggle, _btnCancelScan, _btnScanNow }) RegisterButtonTheme(button);
             _btnThemeToggle.BackColor = _isDarkMode ? Color.FromArgb(50, 55, 60) : Color.FromArgb(35, 60, 90);
         }
 
@@ -124,6 +141,20 @@ public partial class MainForm
             tp.BackColor = tabBg;
             ApplyThemeToChildren(tp, panelBg, cardBg, textPrimary, textSecondary);
         }
+        _lblDetailTitle.ForeColor = textSecondary;
+        _lblDetailDates.ForeColor = textSecondary;
+        _columnMenu.BackColor = cardBg;
+        _columnMenu.ForeColor = textPrimary;
+        _columnMenu.Renderer = new ToolStripProfessionalRenderer(new MenuPalette(cardBg, gridLineBorder,
+            _gridAnnouncements.DefaultCellStyle.SelectionBackColor));
+        foreach (ToolStripItem item in _columnMenu.Items) item.ForeColor = textPrimary;
+        foreach (DataGridViewRow row in _gridAnnouncements.Rows)
+            if (row.Tag is AnnouncementDisplayItem item && item.Record.EndDate is { } deadline &&
+                deadline >= DateTime.UtcNow && deadline <= DateTime.UtcNow.AddDays(3))
+            {
+                row.Cells["RemainingTime"].Style.ForeColor = _isDarkMode ? Color.Orange : Color.DarkOrange;
+                row.Cells["RemainingTime"].Style.SelectionForeColor = _isDarkMode ? Color.Orange : Color.FromArgb(135, 70, 0);
+            }
 
         // ── Log ──
         _rtbLog.BackColor = logBg;
@@ -162,6 +193,8 @@ public partial class MainForm
                     grid.DefaultCellStyle.ForeColor = textPrimary;
                     grid.ColumnHeadersDefaultCellStyle.BackColor = panelBg;
                     grid.ColumnHeadersDefaultCellStyle.ForeColor = textPrimary;
+                    grid.ColumnHeadersDefaultCellStyle.SelectionBackColor = panelBg;
+                    grid.ColumnHeadersDefaultCellStyle.SelectionForeColor = textPrimary;
                     grid.EnableHeadersVisualStyles = false;
                     grid.AlternatingRowsDefaultCellStyle.BackColor = _isDarkMode ? Color.FromArgb(48, 48, 55) : Color.FromArgb(248, 250, 252);
                     grid.DefaultCellStyle.SelectionBackColor = _isDarkMode ? Color.FromArgb(60, 80, 120) : Color.FromArgb(200, 220, 250);
@@ -171,6 +204,8 @@ public partial class MainForm
                     grid.RowHeadersDefaultCellStyle.SelectionBackColor = grid.DefaultCellStyle.SelectionBackColor;
                     grid.RowHeadersDefaultCellStyle.SelectionForeColor = textPrimary;
                     grid.GridColor = _isDarkMode ? Color.FromArgb(65, 65, 70) : Color.FromArgb(220, 225, 230);
+                    foreach (DataGridViewColumn column in grid.Columns)
+                        if (column is DataGridViewComboBoxColumn choice) choice.FlatStyle = FlatStyle.Flat;
                     break;
                 case ListBox list:
                     list.BackColor = cardBg; list.ForeColor = textPrimary;
@@ -186,6 +221,8 @@ public partial class MainForm
                     break;
                 case SplitContainer sc:
                     sc.BackColor = _isDarkMode ? Color.FromArgb(50, 50, 55) : Color.FromArgb(230, 235, 240);
+                    sc.Panel1.BackColor = panelBg;
+                    sc.Panel2.BackColor = panelBg;
                     ApplyThemeToChildren(sc.Panel1, panelBg, cardBg, textPrimary, textSecondary);
                     ApplyThemeToChildren(sc.Panel2, panelBg, cardBg, textPrimary, textSecondary);
                     break;
@@ -209,8 +246,9 @@ public partial class MainForm
                     chk.BackColor = panelBg;
                     break;
                 case Button button:
+                    RegisterButtonTheme(button);
                     // Keep the colored portal actions; style ordinary editor buttons for both themes.
-                    if (button != _btnOpenKariyerKapisi && button != _btnOpenEDevlet && button != _btnSendTelegramNow && button != _btnOpenSelectedAnnouncements)
+                    if (button != _btnOpenKariyerKapisi && button != _btnOpenKamuIlanSite && button != _btnOpenEDevlet && button != _btnSendTelegramNow && button != _btnOpenSelectedAnnouncements)
                     {
                         button.UseVisualStyleBackColor = false;
                         button.FlatStyle = FlatStyle.Flat;
@@ -220,8 +258,12 @@ public partial class MainForm
                     }
                     break;
                 case DateTimePicker dtp:
+                    if (dtp is ThemeDateTimePicker themedDate) themedDate.SetPalette(cardBg, textPrimary,
+                        _isDarkMode ? Color.FromArgb(85, 95, 110) : Color.FromArgb(185, 200, 215));
                     dtp.CalendarMonthBackground = cardBg;
                     dtp.CalendarForeColor = textPrimary;
+                    dtp.CalendarTitleBackColor = panelBg;
+                    dtp.CalendarTitleForeColor = textPrimary;
                     break;
                 case RichTextBox rtb when rtb != _rtbLog:
                     rtb.BackColor = cardBg;
@@ -235,4 +277,20 @@ public partial class MainForm
         }
     }
 
+}
+
+internal sealed class MenuPalette(Color background, Color border, Color selection) : ProfessionalColorTable
+{
+    public override Color ToolStripDropDownBackground => background;
+    public override Color ImageMarginGradientBegin => background;
+    public override Color ImageMarginGradientMiddle => background;
+    public override Color ImageMarginGradientEnd => background;
+    public override Color MenuBorder => border;
+    public override Color MenuItemBorder => border;
+    public override Color MenuItemSelected => selection;
+    public override Color CheckBackground => selection;
+    public override Color CheckSelectedBackground => selection;
+    public override Color CheckPressedBackground => selection;
+    public override Color SeparatorDark => border;
+    public override Color SeparatorLight => background;
 }

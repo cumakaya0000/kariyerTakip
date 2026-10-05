@@ -7,18 +7,18 @@ public sealed class ApplicationTrackingControl : UserControl
 {
     private readonly ComboBox _status = new() { DropDownStyle = ComboBoxStyle.DropDownList, Dock = DockStyle.Top };
     private readonly TextBox _notes = new() { Multiline = true, ScrollBars = ScrollBars.Vertical, Dock = DockStyle.Fill };
-    private readonly Button _save = new() { Text = "Başvuru durumunu ve notları kaydet", Dock = DockStyle.Bottom, Height = 40 };
+    private readonly Button _save = new() { Text = "Başvuru durumunu ve notları kaydet", Dock = DockStyle.Bottom, Height = 34 };
     private AnnouncementRecord? _record;
     public event Action? TrackingSaved;
     public ApplicationTrackingControl(IAnnouncementRepository repository)
     {
-        Dock = DockStyle.Fill; Padding = new Padding(16);
+        Dock = DockStyle.Fill; Padding = new Padding(10);
         _status.Items.AddRange(new object[] { "Takip edilmiyor", "Başvuracağım", "Başvurdum", "Geçtim" });
-        var header = new Panel { Dock = DockStyle.Top, Height = 100 };
+        var header = new Panel { Dock = DockStyle.Top, Height = 82 };
         header.Controls.Add(new Label { Text = "Başvuru durumu", Dock = DockStyle.Top, Height = 24 });
         _status.Location = new Point(0, 26); _status.Dock = DockStyle.None; _status.Width = 280;
         header.Controls.Add(_status);
-        header.Controls.Add(new Label { Text = "Kişisel notlar (bu bilgisayarda saklanır)", Location = new Point(0, 68), AutoSize = true });
+        header.Controls.Add(new Label { Text = "Kişisel notlar (bu bilgisayarda saklanır)", Location = new Point(0, 56), AutoSize = true });
         Controls.Add(_notes); Controls.Add(header); Controls.Add(_save);
         Bind(null);
         _save.Click += async (s, e) =>

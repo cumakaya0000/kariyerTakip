@@ -8,7 +8,7 @@ internal sealed class MultiChoiceControl : UserControl
 
     public MultiChoiceControl(IEnumerable<string> choices, string emptyHint)
     {
-        Height = 150;
+        Height = 115;
         _choices.Items.AddRange(choices.Cast<object>().ToArray());
         var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 3, RowCount = 3 };
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));

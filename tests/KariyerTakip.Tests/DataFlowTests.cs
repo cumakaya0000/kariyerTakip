@@ -284,17 +284,28 @@ public class DataFlowTests
                     var grid = Field<DataGridView>(form, "_gridAnnouncements");
                     Assert.Equal(dark, grid.DefaultCellStyle.BackColor.GetBrightness() < 0.5f);
                     Assert.Equal(dark, editor.BackColor.GetBrightness() < 0.5f);
+                    Assert.Equal(dark, grid.ColumnHeadersDefaultCellStyle.SelectionBackColor.GetBrightness() < 0.5f);
+                    Assert.Equal(dark, Field<ContextMenuStrip>(form, "_columnMenu").BackColor.GetBrightness() < 0.5f);
+                    Assert.True(Field<Label>(form, "_lblDetailStatusBadge").ForeColor.GetBrightness() < 0.5f);
+                    var date = (DateTimePicker)typeof(ProfileEditorControl).GetField("_birth", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(editor)!;
+                    using (var dateBitmap = new System.Drawing.Bitmap(date.Width, date.Height))
+                    {
+                        date.DrawToBitmap(dateBitmap, new System.Drawing.Rectangle(0, 0, date.Width, date.Height));
+                        Assert.Equal(dark, dateBitmap.GetPixel(date.Width - 30, date.Height / 2).GetBrightness() < 0.5f);
+                    }
+                    Assert.False(date.Checked);
                     var tabs = Field<TabControl>(form, "_tabControl");
                     if (previews != null)
                     {
                         Directory.CreateDirectory(previews);
-                        foreach (var index in new[] { 0, 1, 2 })
+                        foreach (var index in new[] { 0, 1, 2, 3, 4 })
                         {
                             tabs.SelectedIndex = index; form.PerformLayout();
                             using var bitmap = new System.Drawing.Bitmap(form.Width, form.Height);
                             form.DrawToBitmap(bitmap, new System.Drawing.Rectangle(0, 0, form.Width, form.Height));
                             bitmap.Save(Path.Combine(previews, $"{(dark ? "dark" : "light")}-{index}.png"));
                         }
+                        tabs.SelectedIndex = 0;
                     }
                 }
             }
