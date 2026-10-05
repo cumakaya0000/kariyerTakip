@@ -34,7 +34,7 @@ jobs:
           Copy-Item -LiteralPath artifacts/KariyerTakip-Kurulum.exe.sha256 -Destination artifacts/release-assets/KariyerTakip-Kurulum.exe.sha256
           Copy-Item -LiteralPath artifacts/KariyerTakip-win-x64.zip -Destination artifacts/release-assets/KariyerTakip-win-x64.zip
           Copy-Item -LiteralPath artifacts/KariyerTakip-win-x64.zip.sha256 -Destination artifacts/release-assets/KariyerTakip-win-x64.zip.sha256
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: KariyerTakip-win-x64
           path: artifacts/release-assets/*
