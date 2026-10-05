@@ -14,7 +14,11 @@ AppPublisher=KariyerTakip
 AppPublisherURL=https://github.com/cumakaya0000/kariyerTakip
 AppSupportURL=https://github.com/cumakaya0000/kariyerTakip/issues
 DefaultDirName={autopf}\KariyerTakip
+#ifdef TestBuild
+DefaultGroupName=KariyerTakip Kurulum Testi
+#else
 DefaultGroupName=KariyerTakip
+#endif
 DisableProgramGroupPage=yes
 DisableDirPage=no
 DisableWelcomePage=no
