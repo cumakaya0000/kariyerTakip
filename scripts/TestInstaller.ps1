@@ -20,17 +20,19 @@ try {
         if ($taskKey.GetValue('InstallLocation').TrimEnd('\') -ne $taskInstall) { throw 'Kayıtlı kurulum konumu yanlış.' }
         if (-not $taskKey.GetValue('UninstallString').Contains($taskInstall)) { throw 'Kaldırma komutu yanlış konuma gidiyor.' }
     } finally { $taskKey.Dispose() }
-    $taskShell = New-Object -ComObject WScript.Shell
+    $taskShell = New-Object -ComObject Shell.Application
+    $taskShortcutFolder = $taskShell.NameSpace($taskGroupPath)
     foreach ($taskShortcutName in @('KariyerTakip.lnk',"KariyerTakip'i Kaldır.lnk")) {
         $taskLinkPath = Join-Path $taskGroupPath $taskShortcutName
         if (-not (Test-Path -LiteralPath $taskLinkPath)) { throw 'Başlat menüsü kısayolu yok.' }
-        $taskLink = $taskShell.CreateShortcut($taskLinkPath)
+        $taskLink = $taskShortcutFolder.ParseName($taskShortcutName).GetLink
+        $taskTargetPath = $taskLink.Path
         $taskExpectedName = if ($taskShortcutName -eq 'KariyerTakip.lnk') { 'KariyerTakip.exe' } else { 'unins000.exe' }
         $taskExpectedPath = Join-Path $taskInstall $taskExpectedName
         # Shell links can return extended or short paths; verify the file they actually launch.
-        if (-not (Test-Path -LiteralPath $taskLink.TargetPath) -or
-            (Get-FileHash -LiteralPath $taskLink.TargetPath).Hash -ne (Get-FileHash -LiteralPath $taskExpectedPath).Hash) {
-            throw "Kısayol hedefi yanlış: $($taskLink.TargetPath)"
+        if (-not $taskTargetPath -or -not (Test-Path -LiteralPath $taskTargetPath) -or
+            (Get-FileHash -LiteralPath $taskTargetPath).Hash -ne (Get-FileHash -LiteralPath $taskExpectedPath).Hash) {
+            throw "Kısayol hedefi yanlış: $taskTargetPath"
         }
     }
     if ((Get-FileHash -LiteralPath (Join-Path $taskInstall 'KariyerTakip.exe')).Hash -ne (Get-FileHash -LiteralPath (Join-Path $taskRoot 'artifacts/publish/win-x64/KariyerTakip.exe')).Hash) { throw 'Kurulan EXE yayınlanan EXE ile aynı değil.' }
