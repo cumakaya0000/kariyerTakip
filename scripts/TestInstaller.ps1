@@ -25,7 +25,13 @@ try {
         $taskLinkPath = Join-Path $taskGroupPath $taskShortcutName
         if (-not (Test-Path -LiteralPath $taskLinkPath)) { throw 'Başlat menüsü kısayolu yok.' }
         $taskLink = $taskShell.CreateShortcut($taskLinkPath)
-        if (-not $taskLink.TargetPath.StartsWith($taskInstall + '\', [StringComparison]::OrdinalIgnoreCase)) { throw 'Kısayol başka bir konuma gidiyor.' }
+        $taskExpectedName = if ($taskShortcutName -eq 'KariyerTakip.lnk') { 'KariyerTakip.exe' } else { 'unins000.exe' }
+        $taskExpectedPath = Join-Path $taskInstall $taskExpectedName
+        # Shell links can return extended or short paths; verify the file they actually launch.
+        if (-not (Test-Path -LiteralPath $taskLink.TargetPath) -or
+            (Get-FileHash -LiteralPath $taskLink.TargetPath).Hash -ne (Get-FileHash -LiteralPath $taskExpectedPath).Hash) {
+            throw "Kısayol hedefi yanlış: $($taskLink.TargetPath)"
+        }
     }
     if ((Get-FileHash -LiteralPath (Join-Path $taskInstall 'KariyerTakip.exe')).Hash -ne (Get-FileHash -LiteralPath (Join-Path $taskRoot 'artifacts/publish/win-x64/KariyerTakip.exe')).Hash) { throw 'Kurulan EXE yayınlanan EXE ile aynı değil.' }
     Write-Output 'Kurulum konumu, kaldırma kaydı, uygulama ve Başlat menüsü kısayolları doğrulandı.'
