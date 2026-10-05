@@ -25,19 +25,15 @@ if (-not $SkipPublish) { foreach ($taskRuntime in @('win-x86','win-x64','win-arm
 } }
 $taskArguments = @()
 if ($TestBuild) { $taskArguments += @('/DTestBuild','/DX64Only') }
-if ($taskSigningThumbprint) {
-    $taskArguments += '/DSignedBuild'
-    if ($taskSignTool) {
-        $taskArguments += ('/Skt-sign=$q' + $taskSignTool.Source + '$q sign /sha1 ' + $taskSigningThumbprint + ' /fd SHA256 /tr https://timestamp.digicert.com /td SHA256 $f')
-    } else {
-        $taskPowerShellPath = (Get-Process -Id $PID).Path
-        $taskArguments += ('/Skt-sign=$q' + $taskPowerShellPath + '$q -NoProfile -File $q' + (Join-Path $PSScriptRoot 'SignReleaseFile.ps1') + '$q -Path $f -Thumbprint ' + $taskSigningThumbprint)
-    }
-}
 $taskArguments += (Join-Path $taskRoot 'installer/KariyerTakip.iss')
 & $CompilerPath @taskArguments
 if ($LASTEXITCODE -ne 0) { throw 'Kurulum exe dosyası oluşturulamadı.' }
 $taskSetup = Join-Path $taskRoot $(if ($TestBuild) { 'artifacts/test-installer/KariyerTakip-Kurulum-Test.exe' } else { 'artifacts/KariyerTakip-Kurulum.exe' })
+if ($taskSigningThumbprint -and $taskSignTool) {
+    & $taskSignTool.Source sign /sha1 $taskSigningThumbprint /fd SHA256 /tr https://timestamp.digicert.com /td SHA256 $taskSetup
+} elseif ($taskSigningThumbprint) {
+    & (Join-Path $PSScriptRoot 'SignReleaseFile.ps1') -Path $taskSetup -Thumbprint $taskSigningThumbprint
+}
 $taskHash = (Get-FileHash -LiteralPath $taskSetup -Algorithm SHA256).Hash.ToLowerInvariant()
 [IO.File]::WriteAllText($taskSetup + '.sha256', "$taskHash  $([IO.Path]::GetFileName($taskSetup))`n")
 Write-Output $taskSetup

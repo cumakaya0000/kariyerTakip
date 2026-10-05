@@ -32,16 +32,12 @@ ArchitecturesAllowed=x64os
 ArchitecturesAllowed=x86compatible
 #endif
 MinVersion=10.0.17763
+UseSetupLdr=no
 #ifdef TestBuild
 OutputDir={#Root}\artifacts\test-installer
 OutputBaseFilename=KariyerTakip-Kurulum-Test
 #else
-#ifdef NoTempSetup
-OutputDir={#Root}\artifacts\KariyerTakip-x64-TempYok
-UseSetupLdr=no
-#else
 OutputDir={#Root}\artifacts
-#endif
 #ifdef X64Only
 OutputBaseFilename=KariyerTakip-Kurulum-x64
 #else
@@ -70,10 +66,6 @@ UsePreviousTasks=yes
 ChangesAssociations=no
 VersionInfoVersion={#AppVersion}
 VersionInfoDescription=KariyerTakip Kurulum Sihirbazı
-#ifdef SignedBuild
-SignTool=kt-sign
-SignedUninstaller=yes
-#endif
 
 [Languages]
 Name: "turkish"; MessagesFile: "compiler:Languages\Turkish.isl"
