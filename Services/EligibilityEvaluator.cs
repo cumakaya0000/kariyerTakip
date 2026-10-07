@@ -47,7 +47,7 @@ public class EligibilityEvaluator
 
         // Extract general requirements (like general age/military) from general text
         var genReq = _extractor.Extract(generalAnnouncementText);
-        if (rulesAreCurrent && rules!.ResolveConflicts) genReq.HasConflictingRules = false;
+        if (rulesAreCurrent && rules!.ResolveConflicts) genReq.ConflictingCriteria.Clear();
 
         posEval.ExtractedDepartmentText = posReq.MentionedDepartments.Any()
             ? string.Join(", ", posReq.MentionedDepartments.Select(d => d.Value))
@@ -64,46 +64,57 @@ public class EligibilityEvaluator
         // -------------------------------------------------------------
         // 1. Department & Degree Evaluation
         // -------------------------------------------------------------
-        EvaluateDepartmentAndDegree(posReq, genReq, profile, positionSpecificText, posEval);
+        EvaluateCriterion(!string.IsNullOrEmpty(posReq.EducationSourceText) ? posReq : genReq, RequirementCriterion.Education,
+            () => EvaluateDepartmentAndDegree(posReq, genReq, profile, positionSpecificText, posEval));
 
         // -------------------------------------------------------------
         // 2. KPSS Evaluation
         // -------------------------------------------------------------
-        EvaluateKpss(posReq, genReq, profile, posEval);
+        var kpssGeneral = genReq.ConflictingCriteria.Contains(RequirementCriterion.Kpss) &&
+            (posReq.ExplicitlyNoKpss || posReq.RequiredKpssType != null && posReq.MinKpssScore != null) ? new ExtractedRequirements() : genReq;
+        if (kpssGeneral != genReq && !posReq.ExplicitlyNoKpss && posReq.RequiredKpssYear == null &&
+            posReq.AllowedKpssYears.Count == 0 && !posReq.MinKpssYear.HasValue && !posReq.MaxKpssYear.HasValue)
+        {
+            // An explicit position score resolves score/type conflicts, but must not discard a common exam year.
+            kpssGeneral.RequiredKpssYear = genReq.RequiredKpssYear;
+            kpssGeneral.AllowedKpssYears = new(genReq.AllowedKpssYears);
+            kpssGeneral.MinKpssYear = genReq.MinKpssYear;
+            kpssGeneral.MaxKpssYear = genReq.MaxKpssYear;
+            if (genReq.AllowedKpssYears.Count > 1 || genReq.MinKpssYear.HasValue || genReq.MaxKpssYear.HasValue)
+                kpssGeneral.ConflictingCriteria.Add(RequirementCriterion.Kpss);
+        }
+        EvaluateCriterion(posReq.ConflictingCriteria.Contains(RequirementCriterion.Kpss) ? posReq : kpssGeneral, RequirementCriterion.Kpss,
+            () => EvaluateKpss(posReq, kpssGeneral, profile, posEval));
 
         // -------------------------------------------------------------
         // 3. Experience Evaluation
         // -------------------------------------------------------------
-        EvaluateExperience(posReq.MinExperienceMonths != null || posReq.MaxExperienceMonths != null || posReq.HasUnparsedExperience ? posReq : genReq, profile, posEval);
+        var experience = posReq.MinExperienceMonths != null || posReq.MaxExperienceMonths != null || posReq.HasUnparsedExperience ? posReq : genReq;
+        EvaluateCriterion(experience, RequirementCriterion.Experience, () => EvaluateExperience(experience, profile, posEval));
 
         // -------------------------------------------------------------
         // 4. Driving License Evaluation
         // -------------------------------------------------------------
-        EvaluateDrivingLicense(posReq, profile, posEval);
+        EvaluateCriterion(posReq, RequirementCriterion.DrivingLicense, () => EvaluateDrivingLicense(posReq, profile, posEval));
 
         // -------------------------------------------------------------
         // 5. Age Limit Evaluation
         // -------------------------------------------------------------
-        EvaluateAgeLimit(posReq, genReq, profile, posEval, referenceDate);
-        EvaluateMilitary(posReq, genReq, profile, posEval);
+        EvaluateCriterion(posReq.MaxAgeLimit != null || posReq.HasUnparsedAge ? posReq : genReq, RequirementCriterion.Age,
+            () => EvaluateAgeLimit(posReq, genReq, profile, posEval, referenceDate));
+        EvaluateCriterion(posReq.MilitaryCondition != null ? posReq : genReq, RequirementCriterion.Military,
+            () => EvaluateMilitary(posReq, genReq, profile, posEval));
 
         // -------------------------------------------------------------
         // 6. Certificates Evaluation
         // -------------------------------------------------------------
-        EvaluateCertificates(posReq, profile, posEval);
+        EvaluateCriterion(posReq, RequirementCriterion.Certificates, () => EvaluateCertificates(posReq, profile, posEval));
 
         // -------------------------------------------------------------
         // 7. City Preferences Evaluation
         // -------------------------------------------------------------
         EvaluateCityPreferences(altIlan, profile, posEval);
         EvaluateWorkPreferences(positionTitleText, profile, posEval, positionRawText);
-        if (posReq.HasConflictingRules || genReq.HasConflictingRules)
-        {
-            foreach (var condition in posEval.Conditions.Where(c => !c.IsPreference))
-            { condition.IsInferred = true; if (condition.Status == ConditionStatus.Unsatisfied) condition.Status = ConditionStatus.Unknown; }
-            posEval.Conditions.Add(new ConditionEvaluation { CriterionName = "Kural çakışması", Status = ConditionStatus.Unknown,
-                IsInferred = true, Explanation = "Birden fazla şart tespit edildi; kadroya ait kural resmî metinden doğrulanmalıdır." });
-        }
 
         // -------------------------------------------------------------
         // Overall Decision Aggregation
@@ -111,6 +122,16 @@ public class EligibilityEvaluator
         AggregateOverallStatus(posEval);
 
         return posEval;
+
+        void EvaluateCriterion(ExtractedRequirements requirements, RequirementCriterion criterion, Action evaluate)
+        {
+            var start = posEval.Conditions.Count; evaluate();
+            if (!requirements.ConflictingCriteria.Contains(criterion)) return;
+            foreach (var condition in posEval.Conditions.Skip(start))
+            { condition.IsInferred = true; condition.Status = ConditionStatus.Unknown; }
+            posEval.Conditions.Add(new ConditionEvaluation { CriterionName = $"Kural çakışması ({criterion})", Status = ConditionStatus.Unknown,
+                IsInferred = true, Explanation = "Bu kriterde birden fazla kural var; kadroya uygulanan şart doğrulanmalıdır." });
+        }
     }
 
     private void EvaluateDepartmentAndDegree(
@@ -122,9 +143,13 @@ public class EligibilityEvaluator
         var associate = level.Contains("ön lisans") || level.Contains("önlisans");
         var bachelor = !associate && level == "lisans";
         var school = level.Contains("lise") || level.Contains("ortaöğretim");
+        var postgraduate = level.Contains("yüksek lisans") || level.Contains("doktora");
         var hasLevels = req.HasAssociateDegreeRequirement || req.HasBachelorDegreeRequirement || req.HasHighSchoolRequirement;
         var levelMatches = associate && req.HasAssociateDegreeRequirement ||
             bachelor && req.HasBachelorDegreeRequirement || school && req.HasHighSchoolRequirement;
+        if (req.AcceptsHigherEducation) levelMatches |=
+            (bachelor || postgraduate) && req.HasAssociateDegreeRequirement || postgraduate && req.HasBachelorDegreeRequirement ||
+            (associate || bachelor || postgraduate) && req.HasHighSchoolRequirement;
         if (hasLevels && !levelMatches)
         {
             posEval.Conditions.Add(new ConditionEvaluation { CriterionName = "Öğrenim Düzeyi",
@@ -134,23 +159,28 @@ public class EligibilityEvaluator
                 SourceText = req.EducationSourceText });
             return;
         }
-        var educationText = _documentReader.ExtractClauses(positionSpecificText + "\n" + genReq.EducationSourceText)
+        var educationText = _documentReader.ExtractClauses(!string.IsNullOrEmpty(posReq.EducationSourceText) ? positionSpecificText : genReq.EducationSourceText)
             .Where(c => Regex.IsMatch(Normalize(c), @"mezun|diploma|öğrenim|öğretim")).ToList();
         var names = new List<string> { profile.Department };
         foreach (var group in profile.DepartmentAliases)
             if (Normalize(group.Key) == Normalize(profile.Department) || group.Value.Any(v => Normalize(v) == Normalize(profile.Department)))
             { names.Add(group.Key); names.AddRange(group.Value); }
         var evidence = educationText.FirstOrDefault(c => names.Any(n => DepartmentMatches(c, n)));
-        var anyDegree = associate && req.HasAnyAssociateDegree || bachelor && req.HasAnyBachelorDegree ||
+        var anyDegree = (associate || req.AcceptsHigherEducation && (bachelor || postgraduate)) && req.HasAnyAssociateDegree ||
+            (bachelor || req.AcceptsHigherEducation && postgraduate) && req.HasAnyBachelorDegree ||
             school && req.HasHighSchoolRequirement && !Regex.IsMatch(Normalize(req.EducationSourceText), @"bölüm|alan");
         var status = evidence != null || anyDegree ? ConditionStatus.Satisfied : ConditionStatus.Unknown;
+        var explicitMismatch = evidence == null && !anyDegree && !string.IsNullOrWhiteSpace(profile.Department) &&
+            educationText.Any(c => Regex.IsMatch(Normalize(c), @"(?:bölüm|program)(?:ler|lar)?(?:inden|ından|ünden|undan|i|ı|ü|u).*mezun") &&
+                !Regex.IsMatch(Normalize(c), @"denk|eşdeğer|ilgili|diğer|gibi|herhangi|tüm"));
         if (status == ConditionStatus.Satisfied && profile.GraduationStatus != "Mezun")
             status = profile.GraduationStatus == "Öğrenci" ? ConditionStatus.Unsatisfied : ConditionStatus.Unknown;
         posEval.Conditions.Add(new ConditionEvaluation { CriterionName = "Öğrenim Düzeyi / Bölüm",
-            Status = status, IsInferred = evidence == null && !anyDegree,
+            Status = status, IsInferred = evidence == null && !anyDegree, IsLikelyMismatch = explicitMismatch,
             RequiredValue = req.EducationSourceText, UserValue = $"{profile.EducationLevel} - {profile.Department} ({profile.GraduationStatus})",
             Explanation = status == ConditionStatus.Satisfied ? "Mezuniyet düzeyi ve bölüm şartı karşılanıyor." :
                 evidence != null || anyDegree ? "Başvuru için mezuniyet durumunuz kontrol edilmelidir." :
+                explicitMismatch ? "İlanın açık bölüm listesi profilinizle eşleşmiyor; büyük olasılıkla uygun değil. Resmî listeyi kontrol edin." :
                 "Bölümün kabul edildiği metinden kesin çıkarılamadı; resmî mezuniyet listesi kontrol edilmelidir.",
             SourceText = evidence ?? req.EducationSourceText });
     }
@@ -166,7 +196,7 @@ public class EligibilityEvaluator
         if (Regex.IsMatch(normalized, @"olmamak|mezun olmamış|belgesi")) return false;
         // Require a degree/program delimiter after the complete department name.
         return Regex.IsMatch(normalized, @"(?<![\p{L}])" + Regex.Escape(department) +
-            @"(?=\s*(?:[,;/()]|$|ön\s*lisans|önlisans|lisans|bölüm|program|mezun|diploma)|(?:ndan|nden|dan|den|nın|nin|ları|leri)\b)");
+            @"(?=\s*(?:[,;/()]|$|veya\b|ile\b|ve\b(?=\s+[\p{L}]+\s*(?:[,;]|\s+(?:bölüm|program|mezun|lisans|ön\s*lisans)))|ön\s*lisans|önlisans|lisans|bölüm|program|mezun|diploma)|(?:ndan|nden|dan|den|nın|nin|ları|leri)\b)");
     }
     private void EvaluateKpss(
         ExtractedRequirements posReq,
@@ -293,9 +323,9 @@ public class EligibilityEvaluator
         if (posReq.HasUnparsedExperience)
             posEval.Conditions.Add(new ConditionEvaluation { CriterionName = "Mesleki Tecrübe", Status = ConditionStatus.Unknown,
                 IsInferred = true, Explanation = "Tecrübe şartı görüldü ancak süre kesin çıkarılamadı." });
-        if (posReq.MinExperienceMonths != null && Regex.IsMatch(Normalize(posReq.ExperienceSourceText), @"alanında|sektör|konusunda|alanında|bilişim|yazılım|bilgisayar"))
+        if ((posReq.MinExperienceMonths != null || posReq.MaxExperienceMonths != null) && Regex.IsMatch(Normalize(posReq.ExperienceSourceText), @"alanında|sektör|konusunda|bilişim|yazılım|bilgisayar"))
         {
-            var fieldMatches = posReq.RequiredExperienceField != null && Normalize(profile.Experience.Field) == Normalize(posReq.RequiredExperienceField.Value);
+            var fieldMatches = posReq.RequiredExperienceField != null && ExperienceFieldMatcher.Matches(posReq.RequiredExperienceField.Value, profile.Experience.Field);
             var verified = fieldMatches && profile.Experience.IsKnown && profile.Experience.IsDocumented;
             posEval.Conditions.Add(new ConditionEvaluation { CriterionName = "Tecrübe Alanı", Status = verified ? ConditionStatus.Satisfied : ConditionStatus.Unknown,
                 IsInferred = !verified, RequiredValue = posReq.RequiredExperienceField?.Value ?? posReq.ExperienceSourceText, UserValue = profile.Experience.Field,
@@ -365,7 +395,7 @@ public class EligibilityEvaluator
         if (posReq.RequiredDrivingLicense != null)
         {
             var reqLicense = posReq.RequiredDrivingLicense.Value;
-            var hasLicense = profile.DrivingLicenses.Any(l => l.Equals(reqLicense, StringComparison.OrdinalIgnoreCase));
+            var hasLicense = profile.DrivingLicenses.Any(l => DrivingLicenseCoverage.Covers(l, reqLicense));
 
             if (hasLicense)
             {
@@ -396,53 +426,42 @@ public class EligibilityEvaluator
 
     private void EvaluateAgeLimit(ExtractedRequirements posReq, ExtractedRequirements genReq, ProfileOptions profile, PositionEvaluation posEval, DateTime? referenceDate)
     {
-        if (posReq.HasUnparsedAge || genReq.HasUnparsedAge)
+        var req = posReq.MaxAgeLimit != null || posReq.HasUnparsedAge ? posReq : genReq;
+        if (req.HasUnparsedAge)
             posEval.Conditions.Add(new ConditionEvaluation { CriterionName = "Yaş Sınırı", Status = ConditionStatus.Unknown,
                 IsInferred = true, Explanation = "Yaş şartı görüldü ancak sınır kesin çıkarılamadı." });
-        var maxAgeLimit = posReq.MaxAgeLimit?.Value ?? genReq.MaxAgeLimit?.Value;
-        var sourceText = posReq.MaxAgeLimit?.SourceText ?? genReq.MaxAgeLimit?.SourceText ?? "";
-
-        if (maxAgeLimit.HasValue && !profile.BirthDate.HasValue)
+        if (req.MaxAgeLimit == null) return;
+        var condition = new ConditionEvaluation { CriterionName = "Yaş Sınırı",
+            SourceText = req.MaxAgeLimit.SourceText, RequiredValue = req.MaxAgeLimit.SourceText };
+        if (!profile.BirthDate.HasValue)
         {
-            posEval.Conditions.Add(new ConditionEvaluation { CriterionName = "Yaş Sınırı", Status = ConditionStatus.Unknown,
-                RequiredValue = $"{maxAgeLimit} yaş", UserValue = "Doğum tarihi belirtilmemiş",
-                Explanation = "Yaş şartı var; doğum tarihi bilinmediği için kontrol edilmelidir.", SourceText = sourceText });
+            condition.Status = ConditionStatus.Unknown; condition.UserValue = "Doğum tarihi belirtilmemiş";
+            condition.Explanation = "Doğum tarihi bilinmediği için yaş şartı kontrol edilmelidir.";
         }
-
-        if (maxAgeLimit.HasValue && profile.BirthDate.HasValue)
+        else
         {
-            var today = AppTime.ToDisplay(referenceDate ?? DateTime.UtcNow).Date;
-            var userAge = today.Year - profile.BirthDate.Value.Year;
-            if (profile.BirthDate.Value.Date > today.AddYears(-userAge)) userAge--;
-            if ((posReq.MaxAgeLimit != null ? posReq : genReq).AgeCountsNextYear) userAge++;
-
-            if (userAge < maxAgeLimit.Value)
+            var date = req.AgeReferenceDate ?? AppTime.ToDisplay(referenceDate ?? DateTime.UtcNow).Date;
+            var birth = profile.BirthDate.Value.Date;
+            var age = date.Year - birth.Year; if (birth > date.AddYears(-age)) age--;
+            condition.UserValue = $"{birth:dd.MM.yyyy} ({date:dd.MM.yyyy} tarihinde {age} yaşında)";
+            if (req.EarliestBirthDate is DateTime boundary)
+                condition.Status = (req.BirthDateBoundaryInclusive ? birth >= boundary : birth > boundary) ? ConditionStatus.Satisfied : ConditionStatus.Unsatisfied;
+            else if (req.AgeCountsNextYear)
             {
-                posEval.Conditions.Add(new ConditionEvaluation
-                {
-                    CriterionName = "Yaş Sınırı",
-                    Status = ConditionStatus.Satisfied,
-                    RequiredValue = $"{maxAgeLimit.Value} yaşını doldurmamış olmak",
-                    UserValue = $"{userAge} yaşında",
-                    Explanation = $"Yaş sınırına uygunsunuz ({userAge} < {maxAgeLimit.Value}).",
-                    SourceText = sourceText
-                });
+                // Official examples disagree only on the exact cutoff birthday; explicit birth-date boundaries take precedence.
+                var cutoff = date.AddYears(-(req.MaxAgeLimit.Value - 1));
+                condition.Status = birth == cutoff ? ConditionStatus.Unknown : birth > cutoff ? ConditionStatus.Satisfied : ConditionStatus.Unsatisfied;
+                condition.IsInferred = birth == cutoff;
             }
-            else
-            {
-                posEval.Conditions.Add(new ConditionEvaluation
-                {
-                    CriterionName = "Yaş Sınırı",
-                    Status = ConditionStatus.Unsatisfied,
-                    RequiredValue = $"{maxAgeLimit.Value} yaşını doldurmamış olmak",
-                    UserValue = $"{userAge} yaşında",
-                    Explanation = $"Yaş sınırı aşılmıştır ({userAge} >= {maxAgeLimit.Value}).",
-                    SourceText = sourceText
-                });
-            }
+            else condition.Status = age < req.MaxAgeLimit.Value ? ConditionStatus.Satisfied : ConditionStatus.Unsatisfied;
+            condition.Explanation = condition.Status switch {
+                ConditionStatus.Satisfied => "İlandaki yaş/doğum tarihi sınırı karşılanıyor.",
+                ConditionStatus.Unsatisfied => "İlandaki yaş/doğum tarihi sınırı karşılanmıyor.",
+                _ => "Tam sınır doğum günündesiniz; 'gün almamış' ifadesinin kurum tarafından belirtilen doğum tarihi sınırı kontrol edilmelidir."
+            };
         }
+        posEval.Conditions.Add(condition);
     }
-
     private static void EvaluateMilitary(ExtractedRequirements posReq, ExtractedRequirements genReq, ProfileOptions profile, PositionEvaluation evaluation)
     {
         var condition = posReq.MilitaryCondition ?? genReq.MilitaryCondition;
@@ -539,6 +558,11 @@ public class EligibilityEvaluator
             posEval.Status = EligibilityStatus.Ineligible;
             var failedConds = posEval.Conditions.Where(c => !c.IsPreference && c.Status == ConditionStatus.Unsatisfied).ToList();
             posEval.SummaryReason = string.Join("; ", failedConds.Select(f => $"{f.CriterionName}: {f.Explanation}"));
+        }
+        else if (posEval.Conditions.Any(c => c.IsLikelyMismatch))
+        {
+            posEval.Status = EligibilityStatus.LikelyIneligible;
+            posEval.SummaryReason = string.Join("; ", posEval.Conditions.Where(c => c.IsLikelyMismatch).Select(c => c.Explanation));
         }
         else if (posEval.Conditions.Any(c => !c.IsPreference && (c.Status == ConditionStatus.Unknown || c.IsInferred && c.Status == ConditionStatus.Unsatisfied)))
         {

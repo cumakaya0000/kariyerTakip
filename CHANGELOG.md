@@ -2,15 +2,21 @@
 
 ## Yerel geliştirme — 2026-10-07
 
+- Boş veya önceki güvenilir listenin yarısından küçük kaynak sonuçlarında ilan kaldırma atlanır ve kesinti başına tek uyarı oluşturulur. Kaldırma için iki ardışık güvenilir taramada kayıp olmak gerekir; sayaç veritabanında korunur. Kaldırma/iptal ve geri gelme bildirimleri yalnızca ilgili ilanlar için üretilir.
+- Açık bölüm listesiyle uyuşmayan kadrolara otomatik bildirilmeyen “Büyük olasılıkla uygun değil” durumu eklendi. Bölüm listelerindeki bağlaçlar, öğrenim alt sınırları, kısaltma noktaları ve sürücü belgesi kapsamları desteklenir; birleşik bölüm adları ihtiyatla değerlendirilir.
+- Çakışmalar yalnızca ilgili kriteri etkiler. KPSS yılları sınava bağlı ifadelerden çıkarılır; takvim tarihleri listeye katılmaz. Tecrübe alanlarında doğrulanmış eş adlar ve sözcük eşleşmesi kullanılır.
+- Yaş hesabında “gün almamış” kalıbı doğrudan aranır. İlanda açık doğum tarihi sınırı varsa önceliklidir; belirtilmeyen tam sınır doğum günü kontrol gerektirir. AFAD'ın 2024 ilanındaki doğum tarihi örneği regresyon testine eklendi.
+- Arşiv içe aktarma daha eski ilan, kadro ve değerlendirmeyle güncel kaydı ezmez; mevcut başvuru kararları ve notlar korunur.
+- Profil kaydı tarama kilidini beklemez; yoğun işlem sırasında son profil yeniden değerlendirme kuyruğuna alınır. Özet mesajı yalnızca yeni uygun ilan oluştuğunda gönderilir.
 - KPSS muafiyeti kadro şartlarını ezmez; açık muafiyet cümlesi gerekir. Yıl listeleri/aralıkları ve en yüksek geçerli puan desteklenir; puan türü tam eşleştirilir.
 - Tecrübe/yaş yazım çeşitleri, tecrübe alt/üst sınırları, mezuniyet durumu ve öğrenim düzeyi kontrolleri genişletildi. Çakışan veya çıkarılamayan şartlar kontrol gerektirir.
 - Şehir ve çalışma türü tercihleri yeterlilikten ayrıldı. Ayrıntılarda kaynak cümle ve çıkarım bilgisi gösterilir.
 - Bölüm eş adları profil ekranından, doğrulanan kadro şartları ilan ayrıntısındaki düzenleme tablosundan değiştirilebilir.
-- Profil değişiminde tek Telegram özeti gönderilir; profil kimliği ilan bildirimlerinin tekrar anahtarından çıkarıldı. Tarih değişikliği yeni uygunluk durumundan önce bildirilir.
-- Başarılı, filtresiz kaynak taramasında listeden kaldırılan ilanlar pasifleştirilir ve bildirilir. Başarısız/filtreli taramalar bu kontrolü uygulamaz.
+- Profil kimliği ilan bildirimlerinin tekrar anahtarından çıkarıldı. Tarih değişikliği yeni uygunluk durumundan önce bildirilir.
+- Başarılı, filtresiz kaynak taramasında kayıp ilanlar izlenir. Başarısız veya şüpheli taramalar kayıp serisini sıfırlar; filtreli taramalar kaldırma uygulamaz.
 - PDF okuma hataları içerik hash'ine katılmaz; kontenjanlar yapılandırılmış JSON olarak saklanır. Son içerik değişikliği önce/şimdi tablosunda ve Telegram özetinde gösterilir.
 - Başvuracağım ilanlar için .ics aktarımı ve kalan süre; JSON arşiv aktarımı, içe aktarma öncesi otomatik SQLite yedeği ve elle veritabanı yedeği eklendi.
-- Değerlendirme geçmişi kadro başına son 20 kayıtla sınırlıdır; `Scan.EvaluationHistoryLimit` ile değiştirilebilir. Geçerli boş API listeleri değişiklik alarmı üretmez.
+- Değerlendirme geçmişi kadro başına son 20 kayıtla sınırlıdır; `Scan.EvaluationHistoryLimit` ile değiştirilebilir.
 - Regresyon havuzu KPSS, yaş, tecrübe, tercihler, bölüm eşleştirme, önbellek, bildirim tekrarları ve veri bakımını kapsayacak şekilde genişletildi.
 
 ## 1.1.0 — Standart Windows kurulumu — 2026-10-05

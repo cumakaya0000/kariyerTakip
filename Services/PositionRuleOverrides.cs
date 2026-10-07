@@ -38,6 +38,6 @@ public sealed class PositionRuleOverrides
         { req.MaxAgeLimit = new(AgeLimit.Value, source); req.HasUnparsedAge = false; }
         if (DrivingLicense != null) req.RequiredDrivingLicense = new(DrivingLicense, source);
         if (MaxExperienceMonths.HasValue) req.MaxExperienceMonths = new(MaxExperienceMonths.Value, source);
-        if (ResolveConflicts) req.HasConflictingRules = false;
+        if (ResolveConflicts) req.ConflictingCriteria.Clear();
     }
 }

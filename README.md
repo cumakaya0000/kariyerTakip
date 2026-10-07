@@ -21,7 +21,7 @@ Bu proje resmî değildir; kişisel kullanım için dokümante edilmemiş kamuya
 - Profil ekranında düzenlenebilir bölüm eş adları; ilan ayrıntısında doğrulanmış KPSS, yaş, tecrübe ve ehliyet şartlarını düzenleme tablosu.
 - Başvuracağım ilanlar için .ics takvimi; içerik değişikliklerini önce/şimdi karşılaştırma.
 - Veri bakımı ekranından JSON içe/dışa aktarma ve SQLite yedeği. İçe aktarma önce otomatik yedek oluşturur.
-- Kadro başına sınırlı değerlendirme geçmişi (`Scan.EvaluationHistoryLimit`, varsayılan 20); filtresiz ve başarılı taramalarda portaldan kaldırılan ilanları pasifleştirme.
+- Kadro başına sınırlı değerlendirme geçmişi (`Scan.EvaluationHistoryLimit`, varsayılan 20); iki güvenilir, filtresiz taramada kaybolan ilanları pasifleştirme. Boş veya önceki listenin yarısından küçük sonuçlar kaldırma üretmez.
 - Telegram bildirim kuyruğu, parça ilerlemesini saklama ve son başvuru hatırlatmaları.
 - Sistem tepsisine küçültme ve isteğe bağlı Windows ile başlatma.
 - Kompakt 1080×700 pencere (en az 900×600), daha küçük boşluklar ve açık/koyu tema; dar alanda satır kaydıran araç düğmeleri.
@@ -159,6 +159,8 @@ Ağ kesintisinde Telegram isteği kabul etmiş ancak uygulama yanıtı alamamı�
 API `Retry-After` değeri 60 saniyeyi aşarsa tarama içinde beklenmez; istek hata olarak sonraki taramaya bırakılır. Telegram kuyruğu sunucunun istediği süreyi zaman damgasıyla saklar; uzun süre boyunca açık bir görev bekletilmez.
 
 `Scan.ApiWarningThreshold` (varsayılan 3), üst üste boş liste veya ayrıştırma hatası sonrasında “API değişmiş olabilir” uyarısını Telegram kuyruğuna ekler. Sayaç `api-health.json` içinde süreçler arasında saklanır; aynı kesinti için tek uyarı oluşturulur. Telegram kapalıysa gönderilemez. Boş listenin arama filtresinden veya gerçekten ilan olmamasından kaynaklanabileceğini de kontrol edin. Gerçek API örnekleri `tests/KariyerTakip.Tests/Fixtures/Api/2026-10-03` altında sözleşme testlerinde kullanılır.
+
+Başarılı HTTP 200 yanıtındaki boş liste de kaldırma açısından şüpheli sayılır. Filtresiz taramada önceki güvenilir listenin yarısından az ilan dönmesi aynı korumayı etkinleştirir; önceden ilan bulunan kaynak için kesinti başına tek kaynak uyarısı kuyruğa alınır. Kayıp sayacı SQLite'ta saklanır; başarısız veya şüpheli tarama seriyi sıfırlar. Kaldırma/iptal ve geri gelme mesajları uygun veya kontrol gerekli kadrosu bulunan ya da başvuracağım/başvurdum olarak işaretlenen ilanlar için üretilir; atlanan ilanlar bildirilmez.
 
 İlan ayrıntısındaki **Bu değerlendirme yanlış** düğmesiyle beklenen sonucu ve açıklamanızı kaydedebilirsiniz. Kamuya açık ilan/kadro metni veri klasöründeki `feedback-fixtures` içine JSON olarak kaydedilir. Profil, token veya başvuru notları aktarılmaz. Serbest açıklamaya kişisel bilgi yazmayın. Bu dosyalar otomatik yayımlanmaz veya teste dönüştürülmez; inceleyip uygun bir regresyon testi eklemek gerekir.
 

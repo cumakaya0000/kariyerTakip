@@ -3,6 +3,8 @@ using System.Text.RegularExpressions;
 
 namespace KariyerTakip.Services;
 
+public enum RequirementCriterion { Education, Kpss, Experience, Age, DrivingLicense, Military, Certificates }
+
 public class ExtractedCondition<T>
 {
     public T Value { get; set; }
@@ -20,7 +22,12 @@ public class ExtractedRequirements
     public HashSet<int> AllowedKpssYears { get; set; } = new();
     public int? MinKpssYear { get; set; }
     public int? MaxKpssYear { get; set; }
-    public bool HasConflictingRules { get; set; }
+    public HashSet<RequirementCriterion> ConflictingCriteria { get; set; } = new();
+    public bool HasConflictingRules => ConflictingCriteria.Count > 0;
+    public bool AcceptsHigherEducation { get; set; }
+    public DateTime? AgeReferenceDate { get; set; }
+    public DateTime? EarliestBirthDate { get; set; }
+    public bool BirthDateBoundaryInclusive { get; set; }
     public bool HasUnparsedExperience { get; set; }
     public bool HasUnparsedAge { get; set; }
     public bool AgeCountsNextYear { get; set; }
@@ -57,13 +64,11 @@ public class RequirementExtractor
 {
     private readonly DocumentReader _documentReader;
 
-    private static readonly Regex KpssScoreRegex = new Regex(@"\b(?:KPSS|KPSSP|P)\s*[\(\[-]?\s*(\d+)\b\s*[\)\]-]?\s+(?:puan\s*t[uü]r[uü]nden)?\s*(?:en\s*az\s*)?(\d{2}(?:[,\.]\d+)?)\s*(?:puan|ve\s*üzeri|almış)?", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    private static readonly Regex KpssScoreRegex = new Regex(@"\b(?:KPSS\s*[\(\[]?\s*)?P\s*[\(\[-]?\s*(\d+)\b\s*[\)\]-]?\s+(?:puan\s*t[uü]r[uü]nden)?\s*(?:en\s*az\s*)?(\d{2}(?:[,\.]\d+)?)\s*(?:puan|ve\s*üzeri|almış)?", RegexOptions.IgnoreCase | RegexOptions.Compiled);
     private static readonly Regex KpssAltScoreRegex = new Regex(@"(?:en\s*az|taban)\s*(\d{2}(?:[,\.]\d+)?)\s*puan\s*(?:almış|şartı|ve\s*üzeri)", RegexOptions.IgnoreCase | RegexOptions.Compiled);
-    private static readonly Regex KpssYearRegex = new Regex(@"\b(20\d{2})\s*(?:yılı)?\s*(?:KPSS|Kamu\s*Personel)", RegexOptions.IgnoreCase | RegexOptions.Compiled);
-    private static readonly Regex KpssYearAltRegex = new Regex(@"(?:KPSS|Kamu\s*Personel)[^\.\n]{0,25}\b(20\d{2})\b", RegexOptions.IgnoreCase | RegexOptions.Compiled);
-    private static readonly Regex ExperienceRegex = new Regex(@"(?:(?<comparison>en\s*(?:az|çok|fazla))\s*)?(?:(?:(\d+)\s*(?:\([^\)]+\))?)|(bir|iki|üç|dört|beş|altı|yedi|sekiz|dokuz|on)(?:\s*\(\d+\))?)\s*(yıl|sene|ay)(?:lık|lik)?\s*(?:mesleki\s*)?(?:tecr[uü]be|deneyim|çalışmış|hizmet|çalışma)", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    private static readonly Regex ExperienceRegex = new Regex(@"(?:(?<comparison>en\s*(?:az|çok|fazla))\s*)?(?:(?:(\d+)\s*(?:\([^\)]+\))?)|(bir|iki|üç|dört|beş|altı|yedi|sekiz|dokuz|on)(?:\s*\(\d+\))?)\s*(yıl|sene|ay)(?:lık|lik)?\s*(?:mesleki\s*)?(?:(?:[\p{L}/-]+\s+){1,6}(?:alanında|sektöründe|konusunda)\s*)?(?:tecr[uü]be|deneyim|çalışmış|hizmet|çalışma)", RegexOptions.IgnoreCase | RegexOptions.Compiled);
     private static readonly Regex AgeLimitRegex = new Regex(@"(?:\b(\d{2})\s*(?:\([^)]*\))?|[a-zçğıöşü]+(?:\s+[a-zçğıöşü]+)?\s*\((\d{2})\))\s*(?:yaşını\s*(?:doldurmamış|bitirmemiş|tamamlamamış)|yaşından\s*gün\s*almamış)", RegexOptions.IgnoreCase | RegexOptions.Compiled);
-    private static readonly Regex DrivingLicenseRegex = new Regex(@"\b([A-Z][0-9]?)\s*sınıfı\s*(?:sürücü|ehliyet)", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    private static readonly Regex DrivingLicenseRegex = new Regex(@"\b([A-Z][0-9]?E?)\s*sınıfı\s*(?:sürücü|ehliyet)", RegexOptions.IgnoreCase | RegexOptions.Compiled);
     private static readonly Regex NoKpssRegex = new Regex(@"KPSS\s*(?:şartı|puanı|puan\s*şartı)\s*(?:aranmaz|aranmamaktadır|aranmayacaktır)", RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
     public RequirementExtractor(DocumentReader documentReader)
@@ -86,6 +91,9 @@ public class RequirementExtractor
         {
             var lClause = clause.ToLower(new CultureInfo("tr-TR"));
             if (!Regex.IsMatch(lClause, @"mezun|öğrenim|öğretim|diploma")) continue;
+            if (Regex.IsMatch(lClause, @"en\s*az\s*(?:ön\s*lisans|lisans|lise|ortaöğretim)|(?:ön\s*lisans|lisans|lise|ortaöğretim)\s*(?:ve\s*)?(?:üzeri|üstü)")) req.AcceptsHigherEducation = true;
+            if (Regex.IsMatch(lClause, @"^(?:en\s*az\s*)?(?:herhangi\s*bir\s*)?ön\s*lisans(?:\s*ve\s*(?:üzeri|üstü))?\s*mezun")) req.HasAnyAssociateDegree = true;
+            if (Regex.IsMatch(lClause, @"^(?:en\s*az\s*)?(?:herhangi\s*bir\s*)?lisans(?:\s*ve\s*(?:üzeri|üstü))?\s*mezun")) req.HasAnyBachelorDegree = true;
 
             if (lClause.Contains("herhangi bir ön lisans") || lClause.Contains("herhangi bir önlisans"))
             {
@@ -136,18 +144,18 @@ public class RequirementExtractor
 
         foreach (var clause in clauses)
         {
-            if (KpssScoreRegex.Matches(clause).Select(m => m.Groups[1].Value + ":" + m.Groups[2].Value).Distinct().Count() > 1) req.HasConflictingRules = true;
+            if (KpssScoreRegex.Matches(clause).Select(m => m.Groups[1].Value + ":" + m.Groups[2].Value).Distinct().Count() > 1) req.ConflictingCriteria.Add(RequirementCriterion.Kpss);
             var kpssMatch = KpssScoreRegex.Match(clause);
             if (kpssMatch.Success)
             {
                 var type = "P" + kpssMatch.Groups[1].Value;
-                if (req.RequiredKpssType != null && req.RequiredKpssType.Value != type) req.HasConflictingRules = true;
+                if (req.RequiredKpssType != null && req.RequiredKpssType.Value != type) req.ConflictingCriteria.Add(RequirementCriterion.Kpss);
                 req.RequiredKpssType = new ExtractedCondition<string>(type, clause);
 
                 var scoreStr = kpssMatch.Groups[2].Value.Replace(',', '.');
                 if (double.TryParse(scoreStr, NumberStyles.Any, CultureInfo.InvariantCulture, out var score))
                 {
-                    if (req.MinKpssScore != null && req.MinKpssScore.Value != score) req.HasConflictingRules = true;
+                    if (req.MinKpssScore != null && req.MinKpssScore.Value != score) req.ConflictingCriteria.Add(RequirementCriterion.Kpss);
                     req.MinKpssScore = new ExtractedCondition<double>(score, clause);
                 }
             }
@@ -172,42 +180,13 @@ public class RequirementExtractor
                 }
             }
 
-            // Year extraction
-            var yearMatch = KpssYearRegex.Match(clause);
-            if (!yearMatch.Success)
-                yearMatch = KpssYearAltRegex.Match(clause);
-
-            if (yearMatch.Success && int.TryParse(yearMatch.Groups[1].Value, out var year))
-            {
-                req.RequiredKpssYear = new ExtractedCondition<int>(year, clause);
-            }
-            if (lClause.Contains("kpss") || lClause.Contains("kamu personel"))
-            {
-                foreach (Match ym in Regex.Matches(lClause, @"\b20\d{2}\b")) req.AllowedKpssYears.Add(int.Parse(ym.Value));
-                var range = Regex.Match(lClause, @"\b(20\d{2})\s*(?:yılı?\s*)?(?:ve\s*)?(sonrası|itibaren|öncesi)");
-                if (range.Success)
-                {
-                    var bound = int.Parse(range.Groups[1].Value);
-                    if (range.Groups[2].Value == "öncesi") req.MaxKpssYear = bound;
-                    else req.MinKpssYear = bound;
-                    req.AllowedKpssYears.Clear();
-                    req.RequiredKpssYear = null;
-                }
-                var interval = Regex.Match(lClause, @"\b(20\d{2})\s*[-–]\s*(20\d{2})\b");
-                if (interval.Success)
-                {
-                    req.MinKpssYear = int.Parse(interval.Groups[1].Value);
-                    req.MaxKpssYear = int.Parse(interval.Groups[2].Value);
-                    req.AllowedKpssYears.Clear(); req.RequiredKpssYear = null;
-                }
-            }
+            ExtractKpssYears(clause, req);
         }
-
         // 4. Experience Extraction
         foreach (var clause in clauses)
         {
             var expMatch = ExperienceRegex.Match(clause);
-            if (ExperienceRegex.Matches(clause).Select(m => m.Value).Distinct().Count() > 1) req.HasConflictingRules = true;
+            if (ExperienceRegex.Matches(clause).Select(m => m.Value).Distinct().Count() > 1) req.ConflictingCriteria.Add(RequirementCriterion.Experience);
             if (expMatch.Success)
             {
                 var numStr = expMatch.Groups[1].Value;
@@ -229,17 +208,21 @@ public class RequirementExtractor
                     int months = (unitStr == "ay") ? num : num * 12;
                     if (Regex.IsMatch(expMatch.Groups["comparison"].Value, @"çok|fazla", RegexOptions.IgnoreCase))
                     {
-                        if (req.MaxExperienceMonths != null && req.MaxExperienceMonths.Value != months) req.HasConflictingRules = true;
+                        if (req.MaxExperienceMonths != null && req.MaxExperienceMonths.Value != months) req.ConflictingCriteria.Add(RequirementCriterion.Experience);
                         req.MaxExperienceMonths = new(months, clause);
                     }
                     else
                     {
-                        if (req.MinExperienceMonths != null && req.MinExperienceMonths.Value != months) req.HasConflictingRules = true;
+                        if (req.MinExperienceMonths != null && req.MinExperienceMonths.Value != months) req.ConflictingCriteria.Add(RequirementCriterion.Experience);
                         req.MinExperienceMonths = new ExtractedCondition<int>(months, clause);
                     }
                     req.ExperienceSourceText = clause;
-                    var fieldMatch = Regex.Match(clause, @"^\s*([\p{L}][\p{L}\s/]+?)\s+(?:alanında|sektöründe|konusunda)", RegexOptions.IgnoreCase);
-                    if (fieldMatch.Success) req.RequiredExperienceField = new(fieldMatch.Groups[1].Value.Trim(), clause);
+                    var fieldMatch = Regex.Match(clause, @"([\p{L}][\p{L}\s/-]+?)\s+(?:alanında|sektöründe|konusunda)", RegexOptions.IgnoreCase);
+                    if (fieldMatch.Success)
+                    {
+                        var field = Regex.Replace(fieldMatch.Groups[1].Value.Trim(), @"^(?:yıl|ay|mesleki)\s+", "", RegexOptions.IgnoreCase);
+                        req.RequiredExperienceField = new(field, clause);
+                    }
                 }
             }
 
@@ -251,15 +234,25 @@ public class RequirementExtractor
         }
 
         // 5. Age Limit
-        foreach (var clause in clauses)
+        for (var clauseIndex = 0; clauseIndex < clauses.Count; clauseIndex++)
         {
+            var clause = clauses[clauseIndex];
             var ageMatch = AgeLimitRegex.Match(clause);
-            if (AgeLimitRegex.Matches(clause).Select(m => m.Value).Distinct().Count() > 1) req.HasConflictingRules = true;
+            if (AgeLimitRegex.Matches(clause).Select(m => m.Value).Distinct().Count() > 1) req.ConflictingCriteria.Add(RequirementCriterion.Age);
             if (ageMatch.Success && int.TryParse(ageMatch.Groups[1].Success ? ageMatch.Groups[1].Value : ageMatch.Groups[2].Value, out var age))
             {
-                if (req.MaxAgeLimit != null && req.MaxAgeLimit.Value != age) req.HasConflictingRules = true;
+                if (req.MaxAgeLimit != null && req.MaxAgeLimit.Value != age) req.ConflictingCriteria.Add(RequirementCriterion.Age);
                 req.MaxAgeLimit = new ExtractedCondition<int>(age, clause);
-                req.AgeCountsNextYear = clause.Contains("gün", StringComparison.OrdinalIgnoreCase);
+                req.AgeCountsNextYear = Regex.IsMatch(ageMatch.Value, @"yaşından\s*gün\s*almamış", RegexOptions.IgnoreCase);
+                var reference = Regex.Match(clause, @"(?<date>\d{1,2}[./]\d{1,2}[./]\d{4})\s*tarihi?\s*itibarı?yla|(?<date>\d{1,2}[./]\d{1,2}[./]\d{4})\s*tarihi?\s*itibariyle", RegexOptions.IgnoreCase);
+                if (reference.Success && TryDate(reference.Groups["date"].Value, out var referenceDate)) req.AgeReferenceDate = referenceDate;
+                var ageContext = clause;
+                if (clauseIndex + 1 < clauses.Count && clauses[clauseIndex + 1].TrimStart().StartsWith('('))
+                    ageContext += " " + clauses[clauseIndex + 1];
+                var birth = Regex.Match(ageContext, @"(?<date>\d{1,2}[./]\d{1,2}[./]\d{4})\s*(?:tarihi?(?:nde|nden)?\s*)?(?<inclusive>ve(?:ya)?\s*sonrasında|ve\s*sonrası|ve\s*daha\s*sonra|veya\s*sonra)?\s*(?<after>sonra(?:sında)?|önce)?\s*doğmuş", RegexOptions.IgnoreCase);
+                if (birth.Success && birth.Groups["after"].Value != "önce" && TryDate(birth.Groups["date"].Value, out var birthDate))
+                { req.EarliestBirthDate = birthDate; req.BirthDateBoundaryInclusive = birth.Groups["inclusive"].Success;
+                    req.MaxAgeLimit.SourceText = ageContext; }
             }
         }
 
@@ -267,10 +260,10 @@ public class RequirementExtractor
         foreach (var clause in clauses)
         {
             var dlMatch = DrivingLicenseRegex.Match(clause);
-            if (DrivingLicenseRegex.Matches(clause).Select(m => m.Groups[1].Value.ToUpperInvariant()).Distinct().Count() > 1) req.HasConflictingRules = true;
+            if (DrivingLicenseRegex.Matches(clause).Select(m => m.Groups[1].Value.ToUpperInvariant()).Distinct().Count() > 1) req.ConflictingCriteria.Add(RequirementCriterion.DrivingLicense);
             if (dlMatch.Success)
             {
-                if (req.RequiredDrivingLicense != null && req.RequiredDrivingLicense.Value != dlMatch.Groups[1].Value.ToUpperInvariant()) req.HasConflictingRules = true;
+                if (req.RequiredDrivingLicense != null && req.RequiredDrivingLicense.Value != dlMatch.Groups[1].Value.ToUpperInvariant()) req.ConflictingCriteria.Add(RequirementCriterion.DrivingLicense);
                 req.RequiredDrivingLicense = new ExtractedCondition<string>(dlMatch.Groups[1].Value.ToUpperInvariant(), clause);
             }
         }
@@ -301,12 +294,12 @@ public class RequirementExtractor
         }
 
         var kpssTypes = Regex.Matches(lowerFull, @"\b(?:kpss\s*)?p\s*\d+\b").Select(m => Regex.Replace(m.Value, @"kpss|\s", "")).Distinct().ToList();
-        if (kpssTypes.Count > 1) req.HasConflictingRules = true;
+        if (kpssTypes.Count > 1) req.ConflictingCriteria.Add(RequirementCriterion.Kpss);
         if (kpssTypes.Count == 1) req.RequiredKpssType = new ExtractedCondition<string>(kpssTypes[0].ToUpperInvariant(), normalizedFull);
         var scores = clauses.Where(c => c.Contains("kpss", StringComparison.OrdinalIgnoreCase)).SelectMany(c => KpssAltScoreRegex.Matches(c).Select(m => m.Groups[1].Value)).Distinct().ToList();
-        if (scores.Count > 1) req.HasConflictingRules = true;
-        if (req.ExplicitlyNoKpss && (req.RequiredKpssType != null || req.MinKpssScore != null)) req.HasConflictingRules = true;
-        if (req.MinExperienceMonths?.Value > req.MaxExperienceMonths?.Value) req.HasConflictingRules = true;
+        if (scores.Count > 1) req.ConflictingCriteria.Add(RequirementCriterion.Kpss);
+        if (req.ExplicitlyNoKpss && (req.RequiredKpssType != null || req.MinKpssScore != null)) req.ConflictingCriteria.Add(RequirementCriterion.Kpss);
+        if (req.MinExperienceMonths?.Value > req.MaxExperienceMonths?.Value) req.ConflictingCriteria.Add(RequirementCriterion.Experience);
         req.HasUnparsedExperience = req.MinExperienceMonths == null && req.MaxExperienceMonths == null && Regex.IsMatch(lowerFull, @"tecrübe|deneyim|çalışmış") && !Regex.IsMatch(lowerFull, @"(?:tecrübe|deneyim).*aranma");
         req.HasUnparsedAge = req.MaxAgeLimit == null && Regex.IsMatch(lowerFull, @"yaşını|yaşından|yaş sınırı");
         return req;
@@ -328,5 +321,33 @@ public class RequirementExtractor
             "on" => 10,
             _ => 0
         };
+    }
+
+    private static bool TryDate(string value, out DateTime date) => DateTime.TryParseExact(value,
+        new[] { "d.M.yyyy", "dd.MM.yyyy", "d/M/yyyy", "dd/MM/yyyy" }, CultureInfo.InvariantCulture, DateTimeStyles.None, out date);
+
+    private static void ExtractKpssYears(string clause, ExtractedRequirements req)
+    {
+        // Remove calendar dates before matching only year phrases adjacent to the exam name.
+        var text = Regex.Replace(clause, @"\b\d{1,2}[./-]\d{1,2}[./-](?:19|20)\d{2}\b|\b(?:19|20)\d{2}-\d{1,2}-\d{1,2}\b", " ");
+        text = Regex.Replace(text, @"\b\d{1,2}\s+(?:ocak|şubat|mart|nisan|mayıs|haziran|temmuz|ağustos|eylül|ekim|kasım|aralık)\s+20\d{2}\b", " ", RegexOptions.IgnoreCase);
+        const string years = @"\b(?<years>20\d{2}(?:\s*(?:,|veya|ve|/|-|–)\s*20\d{2})*)\b";
+        const string relation = @"(?:\s*(?<relation>ve\s*sonrası|ve\s*öncesi|sonrası|öncesi|itibaren))?";
+        var matches = Regex.Matches(text, years + @"\s*(?:yıl[\p{L}]*\s*)?" + relation + @"\s*(?:(?:yapılan|uygulanan|yapılmış)\s*)?(?:KPSS|Kamu\s*Personel)", RegexOptions.IgnoreCase)
+            .Cast<Match>().Concat(Regex.Matches(text, @"(?:KPSS|Kamu\s*Personel)(?:\s*(?:sınavı|sınavının|sınavından|yılı))*\s*[:(]?\s*" + years + relation, RegexOptions.IgnoreCase).Cast<Match>());
+        foreach (var match in matches)
+        {
+            var values = Regex.Matches(match.Groups["years"].Value, @"20\d{2}").Select(y => int.Parse(y.Value)).ToList();
+            var direction = match.Groups["relation"].Value.ToLower(new CultureInfo("tr-TR"));
+            if (direction.Length > 0)
+            {
+                if (direction.Contains("öncesi")) req.MaxKpssYear = values[0]; else req.MinKpssYear = values[0];
+            }
+            else if (Regex.IsMatch(match.Groups["years"].Value, @"[-–]"))
+            { req.MinKpssYear = values[0]; req.MaxKpssYear = values[^1]; }
+            else foreach (var value in values) req.AllowedKpssYears.Add(value);
+            req.RequiredKpssYear = req.AllowedKpssYears.Count == 1 && !req.MinKpssYear.HasValue && !req.MaxKpssYear.HasValue
+                ? new(req.AllowedKpssYears.Single(), clause) : null;
+        }
     }
 }

@@ -44,10 +44,29 @@ public sealed class AnnouncementArchive
                     throw new FormatException("Kadro kimliği başka bir ilana ait.");
         foreach (var record in Announcements)
         {
+            var current = existing.FirstOrDefault(a => a.Guid == record.Guid);
+            if (current != null && current.LastCheckedAt >= record.LastCheckedAt) continue;
+            var oldPositions = current == null ? new List<PositionRecord>() : await repository.GetPositionsByAnnouncementGuidAsync(record.Guid);
+            var incomingPositions = Positions.Where(p => p.AnnouncementGuid == record.Guid).ToDictionary(p => p.PositionKey);
+            foreach (var position in oldPositions)
+                if (incomingPositions.TryGetValue(position.PositionKey, out var incoming) ? position.UpdatedAt >= incoming.UpdatedAt : position.UpdatedAt > record.LastCheckedAt)
+                    incomingPositions[position.PositionKey] = position;
             await repository.UpsertAnnouncementAsync(record);
-            await repository.UpsertPositionsAsync(record.Guid, Positions.Where(p => p.AnnouncementGuid == record.Guid).ToList());
-            await repository.SaveApplicationTrackingAsync(record.Guid, record.ApplicationStatus, record.ApplicationNotes);
+            await repository.UpsertPositionsAsync(record.Guid, incomingPositions.Values.ToList());
+            // Archive imports must preserve local application decisions and notes for existing records.
+            if (current == null) await repository.SaveApplicationTrackingAsync(record.Guid, record.ApplicationStatus, record.ApplicationNotes);
         }
-        foreach (var evaluation in Evaluations) await repository.SaveEvaluationAsync(evaluation);
+        foreach (var evaluation in Evaluations)
+        {
+            var incomingRecord = Announcements.Single(a => a.Guid == evaluation.AnnouncementGuid);
+            var current = existing.FirstOrDefault(a => a.Guid == evaluation.AnnouncementGuid);
+            if (current != null && current.LastCheckedAt >= incomingRecord.LastCheckedAt) continue;
+            var previous = await repository.GetLatestEvaluationsByAnnouncementAsync(evaluation.AnnouncementGuid, evaluation.ProfileHash);
+            if (previous.Any(e => e.PositionKey == evaluation.PositionKey && e.EvaluatedAt >= evaluation.EvaluatedAt)) continue;
+            var positions = await repository.GetPositionsByAnnouncementGuidAsync(evaluation.AnnouncementGuid);
+            var importedPosition = Positions.Single(p => p.PositionKey == evaluation.PositionKey);
+            if (positions.Any(p => p.PositionKey == evaluation.PositionKey && p.RawText != importedPosition.RawText)) continue;
+            await repository.SaveEvaluationAsync(evaluation);
+        }
     }
 }

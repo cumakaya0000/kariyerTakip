@@ -73,7 +73,11 @@ public class DocumentReader
             }
         }
 
-        return clauses.SelectMany(c => Regex.Split(c, @"(?<!\d)\.(?:\s+|$)|;"))
+        const string marker = "\uE000";
+        return clauses.Select(c => Regex.Replace(c, @"\b(?:Fak|Prog|Prof|Doç|Dr|Üniv|No|Md|vb|vs)\.",
+                m => m.Value[..^1] + marker, RegexOptions.IgnoreCase))
+            .SelectMany(c => Regex.Split(c, @"(?<!\d)\.(?:\s+|$)|;"))
+            .Select(c => c.Replace(marker, "."))
             .Select(c => c.Trim()).Where(c => c.Length > 0).ToList();
     }
 }

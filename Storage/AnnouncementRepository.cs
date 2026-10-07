@@ -132,6 +132,7 @@ public class AnnouncementRepository : IAnnouncementRepository
         await EnsureColumnExistsAsync(conn, "Announcements", "Source", "TEXT NOT NULL DEFAULT 'CareerGate'");
         await EnsureColumnExistsAsync(conn, "Announcements", "GeneralConditionsText", "TEXT NOT NULL DEFAULT ''");
         await EnsureColumnExistsAsync(conn, "Announcements", "LastContentDiffJson", "TEXT NOT NULL DEFAULT ''");
+        await EnsureColumnExistsAsync(conn, "Announcements", "MissingScanCount", "INTEGER NOT NULL DEFAULT 0");
         await EnsureColumnExistsAsync(conn, "Positions", "PositionKey", "TEXT");
         await EnsureColumnExistsAsync(conn, "Positions", "UpdatedAt", "TEXT NOT NULL DEFAULT '2026-01-01'");
         await EnsureColumnExistsAsync(conn, "Positions", "IsCurrent", "INTEGER NOT NULL DEFAULT 1");
@@ -163,6 +164,9 @@ public class AnnouncementRepository : IAnnouncementRepository
             CREATE INDEX IF NOT EXISTS IX_Evaluations_Profile ON Evaluations(ProfileHash);
         ";
         await idxCmd.ExecuteNonQueryAsync();
+        using var snapshotSchema = conn.CreateCommand();
+        snapshotSchema.CommandText = "CREATE TABLE IF NOT EXISTS SourceSnapshots (Source TEXT PRIMARY KEY, LastCount INTEGER NOT NULL, WarningEpisode TEXT NOT NULL DEFAULT '')";
+        await snapshotSchema.ExecuteNonQueryAsync();
         using var cleanup = conn.CreateCommand();
         cleanup.CommandText = @"DELETE FROM Evaluations WHERE Id IN (
             SELECT Id FROM (SELECT Id, ROW_NUMBER() OVER (PARTITION BY AnnouncementGuid, PositionKey ORDER BY Id DESC) AS Rank FROM Evaluations)
@@ -426,7 +430,7 @@ public class AnnouncementRepository : IAnnouncementRepository
             cmd.Parameters.AddWithValue("@QuotasJson", pos.QuotasJson);
             cmd.Parameters.AddWithValue("@Quota", pos.Quota);
             cmd.Parameters.AddWithValue("@RawText", (object?)pos.RawText ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@UpdatedAt", DateTime.UtcNow.ToString("o"));
+            cmd.Parameters.AddWithValue("@UpdatedAt", AppTime.ToUtc(pos.UpdatedAt).ToString("o"));
 
             await cmd.ExecuteNonQueryAsync();
         }
@@ -846,19 +850,51 @@ public class AnnouncementRepository : IAnnouncementRepository
     }
 
     public async Task<List<AnnouncementRecord>> MarkMissingAnnouncementsAsync(AnnouncementSource source, IReadOnlyCollection<string> currentGuids)
+        => (await ObserveSourceSnapshotAsync(source, currentGuids)).RemovedAnnouncements;
+
+    public async Task<SourceSnapshotResult> ObserveSourceSnapshotAsync(AnnouncementSource source, IReadOnlyCollection<string> currentGuids)
     {
         var current = currentGuids.ToHashSet(StringComparer.Ordinal);
-        var missing = (await GetAllAnnouncementsAsync(true)).Where(a => a.Source == source && !current.Contains(a.Guid)).ToList();
+        var active = (await GetAllAnnouncementsAsync(true)).Where(a => a.Source == source).ToList();
         using var conn = CreateConnection(); await conn.OpenAsync();
         using var tx = conn.BeginTransaction();
-        foreach (var announcement in missing)
+        var result = new SourceSnapshotResult { PreviousCount = active.Count };
+        using (var read = conn.CreateCommand())
         {
-            using var cmd = conn.CreateCommand(); cmd.Transaction = tx;
-            cmd.CommandText = "UPDATE Announcements SET IsActive = 0, LastScanStatus = 'Removed' WHERE Guid = @Guid";
-            cmd.Parameters.AddWithValue("@Guid", announcement.Guid); await cmd.ExecuteNonQueryAsync();
+            read.Transaction = tx; read.CommandText = "SELECT LastCount, WarningEpisode FROM SourceSnapshots WHERE Source = @Source";
+            read.Parameters.AddWithValue("@Source", source.ToString());
+            using var reader = await read.ExecuteReaderAsync();
+            if (await reader.ReadAsync()) { result.PreviousCount = reader.GetInt32(0); result.WarningEpisode = reader.GetString(1); }
         }
+        result.IsSuspicious = current.Count == 0 || current.Count * 2 < result.PreviousCount;
+        if (result.IsSuspicious)
+        {
+            if (string.IsNullOrEmpty(result.WarningEpisode)) result.WarningEpisode = Guid.NewGuid().ToString("N");
+            using var reset = conn.CreateCommand(); reset.Transaction = tx;
+            reset.CommandText = "UPDATE Announcements SET MissingScanCount = 0 WHERE Source = @Source";
+            reset.Parameters.AddWithValue("@Source", source.ToString()); await reset.ExecuteNonQueryAsync();
+        }
+        else
+        {
+            result.WarningEpisode = "";
+            foreach (var announcement in active)
+            {
+                using var cmd = conn.CreateCommand(); cmd.Transaction = tx;
+                cmd.CommandText = @"UPDATE Announcements SET MissingScanCount = CASE WHEN @Seen = 1 THEN 0 ELSE MissingScanCount + 1 END WHERE Guid = @Guid;
+                    UPDATE Announcements SET IsActive = 0, LastScanStatus = 'Removed' WHERE Guid = @Guid AND MissingScanCount >= 2 AND IsActive = 1 RETURNING Guid";
+                cmd.Parameters.AddWithValue("@Guid", announcement.Guid);
+                cmd.Parameters.AddWithValue("@Seen", current.Contains(announcement.Guid) ? 1 : 0);
+                if (await cmd.ExecuteScalarAsync() != null) result.RemovedAnnouncements.Add(announcement);
+            }
+        }
+        using var save = conn.CreateCommand(); save.Transaction = tx;
+        save.CommandText = @"INSERT INTO SourceSnapshots (Source, LastCount, WarningEpisode) VALUES (@Source, @Count, @Episode)
+            ON CONFLICT(Source) DO UPDATE SET LastCount = excluded.LastCount, WarningEpisode = excluded.WarningEpisode";
+        save.Parameters.AddWithValue("@Source", source.ToString());
+        save.Parameters.AddWithValue("@Count", result.IsSuspicious ? result.PreviousCount : current.Count);
+        save.Parameters.AddWithValue("@Episode", result.WarningEpisode); await save.ExecuteNonQueryAsync();
         await tx.CommitAsync();
-        return missing;
+        return result;
     }
 
     public async Task BackupDatabaseAsync(string destination)

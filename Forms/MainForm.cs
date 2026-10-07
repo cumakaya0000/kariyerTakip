@@ -291,11 +291,22 @@ public partial class MainForm : Form
         _profileEditor.ProfileSaved = async profile =>
         {
             _lblStatus.Text = "İlanlar yeni profile göre değerlendiriliyor...";
-            await Task.Run(() => _scanCoordinator.ReevaluateCachedAnnouncementsAsync(profile));
+            var completed = await Task.Run(() => _scanCoordinator.ReevaluateCachedAnnouncementsAsync(profile));
             await LoadAnnouncementsFromDbAsync();
-            _lblStatus.Text = "Profil kaydedildi ve ilanlar yeniden değerlendirildi";
+            _lblStatus.Text = completed ? "Profil kaydedildi ve ilanlar yeniden değerlendirildi" : "Profil kaydedildi; devam eden işlem sonrasında yeniden değerlendirilecek";
         };
+        _scanCoordinator.QueuedProfileEvaluated += RefreshQueuedProfile;
+        FormClosed += (_, _) => _scanCoordinator.QueuedProfileEvaluated -= RefreshQueuedProfile;
         tab.Controls.Add(_profileEditor);
+    }
+
+    private void RefreshQueuedProfile()
+    {
+        if (IsDisposed || !IsHandleCreated) return;
+        BeginInvoke(new Action(async () => {
+            try { await LoadAnnouncementsFromDbAsync(); _lblStatus.Text = "Bekleyen profil yeniden değerlendirildi"; }
+            catch (Exception ex) { _logger.LogError(ex, "Yeniden değerlendirilen profil gösterilemedi."); }
+        }));
     }
 
     private void SetupSettingsTab(TabPage tab)
@@ -313,7 +324,6 @@ public partial class MainForm : Form
         if (_scanPresenter.IsRunning) return;
         _btnScanNow.Enabled = false;
         _btnCancelScan.Enabled = true;
-        _profileEditor.SetBusy(true);
         _lblStatus.Text = "⏳ İlanlar taranıyor...";
         _lblStatus.ForeColor = Color.Gold;
 
@@ -398,7 +408,8 @@ public partial class MainForm : Form
                     positions.Any(p => !evaluations.Any(e => e.PositionKey == p.PositionKey));
 
                 var overallStatus = isEligible ? EligibilityStatus.Eligible :
-                                    (isNeedsReview || hasUnevaluatedPositions ? EligibilityStatus.NeedsReview : EligibilityStatus.Ineligible);
+                                    (isNeedsReview || hasUnevaluatedPositions ? EligibilityStatus.NeedsReview :
+                                    evaluations.Any(e => e.Status == nameof(EligibilityStatus.LikelyIneligible)) ? EligibilityStatus.LikelyIneligible : EligibilityStatus.Ineligible);
 
                 loadedItems.Add(new AnnouncementDisplayItem
                 {
@@ -441,6 +452,7 @@ public partial class MainForm : Form
                 {
                     EligibilityStatus.Eligible => "✅ UYGUN",
                     EligibilityStatus.NeedsReview => "⚠️ İNCELE",
+                    EligibilityStatus.LikelyIneligible => "BÜYÜK OLASILIKLA UYGUN DEĞİL",
                     _ => "❌ UYGUN DEĞİL"
                 };
 
@@ -572,6 +584,11 @@ public partial class MainForm : Form
             _lblDetailStatusBadge.Text = "⚠️ KONTROL GEREKLİ KADRO VAR";
             _lblDetailStatusBadge.BackColor = Color.FromArgb(255, 165, 0);
         }
+        else if (item.Status == EligibilityStatus.LikelyIneligible)
+        {
+            _lblDetailStatusBadge.Text = "BÜYÜK OLASILIKLA UYGUN DEĞİL";
+            _lblDetailStatusBadge.BackColor = Color.FromArgb(110, 110, 110);
+        }
         else
         {
             _lblDetailStatusBadge.Text = "❌ UYGUN KADRO BULUNAMADI";
@@ -593,6 +610,7 @@ public partial class MainForm : Form
                 "Eligible" => "✅ Uygun",
                 "Ineligible" => "❌ Uygun değil",
                 "NeedsReview" => "⚠️ Kontrol gerekli",
+                "LikelyIneligible" => "Büyük olasılıkla uygun değil (otomatik bildirilmez)",
                 _ => "⚠️ Henüz değerlendirilmedi"
             };
             var statusColor = eval?.Status switch

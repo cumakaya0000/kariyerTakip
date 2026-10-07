@@ -12,7 +12,7 @@ public static class AnnouncementCsvExporter
         foreach (var item in items)
         {
             var record = item.Record;
-            var status = item.Status == EligibilityStatus.Eligible ? "Uygun" : item.Status == EligibilityStatus.Ineligible ? "Uygun değil" : "Kontrol gerekli";
+            var status = item.Status == EligibilityStatus.Eligible ? "Uygun" : item.Status == EligibilityStatus.Ineligible ? "Uygun değil" : item.Status == EligibilityStatus.LikelyIneligible ? "Büyük olasılıkla uygun değil" : "Kontrol gerekli";
             var tracking = record.ApplicationStatus switch { ApplicationStatus.Planning => "Başvuracağım", ApplicationStatus.Applied => "Başvurdum", ApplicationStatus.Skipped => "Geçtim", _ => "Takip edilmiyor" };
             result.AppendLine(string.Join(";", new[] { record.Source.DisplayName(), record.InstitutionName, record.Title,
                 status, AppTime.Format(record.EndDate), tracking, item.Positions.Count.ToString(),

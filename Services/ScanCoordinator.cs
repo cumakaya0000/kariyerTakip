@@ -22,6 +22,10 @@ public class ScanRunResult
 public class ScanCoordinator
 {
     private static readonly SemaphoreSlim _scanLock = new SemaphoreSlim(1, 1);
+    private static readonly object _profileQueueLock = new();
+    private static (ScanCoordinator Owner, ProfileOptions Profile, long Revision)? _pendingReevaluation;
+    private static long _profileRevision;
+    public event Action? QueuedProfileEvaluated;
 
     private readonly CareerGateClient _client;
     private readonly IAnnouncementRepository _repository;
@@ -94,6 +98,8 @@ public class ScanCoordinator
                 await _kamuClient.GetActiveAnnouncementsAsync(_config.Scan.SearchKeyword, cancellationToken);
             if (!activeListResult.IsSuccess)
             {
+                if (string.IsNullOrWhiteSpace(_config.Scan.SearchKeyword))
+                    await _repository.ObserveSourceSnapshotAsync(AnnouncementSource.CareerGate, Array.Empty<string>());
                 var errMsg = activeListResult.ErrorMessage ?? "İlan listesi alınamadı.";
                 _logger.LogError("Tarama başlatılamadı: {Error}", errMsg);
                 result.ErrorMessage = errMsg;
@@ -106,6 +112,8 @@ public class ScanCoordinator
 
             if (kamuListResult != null && !kamuListResult.IsSuccess)
             {
+                if (string.IsNullOrWhiteSpace(_config.Scan.SearchKeyword))
+                    await _repository.ObserveSourceSnapshotAsync(AnnouncementSource.KamuIlan, Array.Empty<string>());
                 result.FailedCount++;
                 result.ErrorMessage = string.Join(" | ", new[] { result.ErrorMessage, kamuListResult.ErrorMessage }.Where(x => !string.IsNullOrEmpty(x)));
                 _logger.LogWarning("Kamu İlan taranamadı: {Error}. Önbellek korunuyor.", kamuListResult.ErrorMessage);
@@ -194,7 +202,7 @@ public class ScanCoordinator
                         result.ProcessedCount, result.FailedCount, result.EligibleCount, result.NeedsReviewCount, result.ErrorMessage);
             }
             catch (Exception ex) { _logger.LogError(ex, "Tarama sonucu kaydedilemedi."); }
-            finally { _scanLock.Release(); }
+            finally { ReleaseScanLock(); }
         }
 
         return result;
@@ -315,7 +323,7 @@ public class ScanCoordinator
         await _repository.UpsertPositionsAsync(item.Guid, dbPositions);
         if (cancelledByPortal)
         {
-            if (existing?.IsActive == true)
+            if (existing?.IsActive == true && await IsInterestingAsync(existing))
                 await _repository.QueueNotificationAsync(new OutboxNotificationRecord {
                     DeduplicationKey = $"Cancelled:{record.Guid}:{existing.LastCheckedAt:o}", AnnouncementGuid = record.Guid, NotificationType = "Removed",
                     MessagePayload = $"📭 Portalda iptal edildi: {System.Net.WebUtility.HtmlEncode(record.Title)}" });
@@ -349,6 +357,10 @@ public class ScanCoordinator
 
         // Check previously eligible state
         var isCurrentlyEligible = evaluatedPositions.Any(e => e.Status == EligibilityStatus.Eligible);
+        if (existing?.LastScanStatus == "Removed" && record.IsActive && await IsInterestingAsync(record))
+            await _repository.QueueNotificationAsync(new OutboxNotificationRecord {
+                DeduplicationKey = $"Restored:{record.Guid}:{existing.LastCheckedAt:o}", AnnouncementGuid = record.Guid, NotificationType = "Restored",
+                MessagePayload = $"📬 İlan portalda yeniden listelendi: {System.Net.WebUtility.HtmlEncode(record.Title)}" });
 
         var changeType = _changeDetector.DetectChanges(existing, record, contentHash, wasPreviouslyEligible, isCurrentlyEligible);
         if (existing != null && string.IsNullOrEmpty(existing.RawContentHash) && changeType == ChangeType.ContentChanged) changeType = ChangeType.None;
@@ -406,19 +418,37 @@ public class ScanCoordinator
         return result;
     }
 
-    public async Task ReevaluateCachedAnnouncementsAsync(ProfileOptions profile)
+    public Task<bool> ReevaluateCachedAnnouncementsAsync(ProfileOptions profile, CancellationToken cancellationToken = default)
+        => ReevaluateProfileAsync(profile, cancellationToken, 0);
+
+    private async Task<bool> ReevaluateProfileAsync(ProfileOptions profile, CancellationToken cancellationToken, long revision)
     {
-        await _scanLock.WaitAsync();
+        cancellationToken.ThrowIfCancellationRequested();
+        var snapshot = JsonSerializer.Deserialize<ProfileOptions>(JsonSerializer.Serialize(profile))!;
+        lock (_profileQueueLock)
+        {
+            if (revision == 0) revision = ++_profileRevision;
+            else if (revision != _profileRevision) return false;
+            if (!_scanLock.Wait(0))
+            {
+                _pendingReevaluation = (this, snapshot, revision);
+                _logger.LogInformation("Profil kaydedildi; devam eden işlem sonrasında en son profil yeniden değerlendirilecek.");
+                return false;
+            }
+        }
         try
         {
+        profile = snapshot;
         var announcements = await _repository.GetAllAnnouncementsAsync(activeOnly: true);
         var profileHash = _changeDetector.ComputeHash(JsonSerializer.Serialize(profile));
 
         _logger.LogInformation("Önbellekteki {Count} aktif ilan yeni profile göre yerel olarak yeniden değerlendiriliyor...", announcements.Count);
 
         var newlyEligible = 0;
+        var newMatches = new List<string>();
         foreach (var ann in announcements)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             var previous = await _repository.GetLatestEvaluationsByAnnouncementAsync(ann.Guid);
             var eligible = false;
             var positions = await _repository.GetPositionsByAnnouncementGuidAsync(ann.Guid);
@@ -443,31 +473,68 @@ public class ScanCoordinator
                     EvaluatedAt = DateTime.UtcNow
                 });
             }
-            if (eligible && !previous.Any(e => e.Status == nameof(EligibilityStatus.Eligible))) newlyEligible++;
+            if (eligible && !previous.Any(e => e.Status == nameof(EligibilityStatus.Eligible)))
+            { newlyEligible++; newMatches.Add(ann.Guid + ":" + ann.RawContentHash); }
         }
-        await _repository.QueueNotificationAsync(new OutboxNotificationRecord {
-            DeduplicationKey = $"ProfileSummary:{Guid.NewGuid():N}", AnnouncementGuid = "system:profile", NotificationType = "ProfileSummary",
-            MessagePayload = $"Profil güncellendi: {announcements.Count} ilan yeniden değerlendirildi, {newlyEligible} ilan yeni uygun hale geldi." });
-        await _dispatcher.ProcessOutboxAsync();
+        if (newlyEligible > 0)
+        {
+            await _repository.QueueNotificationAsync(new OutboxNotificationRecord {
+                DeduplicationKey = $"ProfileSummary:{profileHash}:{_changeDetector.ComputeHash(string.Join("|", newMatches.Order()))}", AnnouncementGuid = "system:profile", NotificationType = "ProfileSummary",
+                MessagePayload = $"Profil güncellendi: {announcements.Count} ilan yeniden değerlendirildi, {newlyEligible} ilan yeni uygun hale geldi." });
+            await _dispatcher.ProcessOutboxAsync(cancellationToken);
+        }
         _logger.LogInformation("Yeniden değerlendirme tamamlandı.");
+        return true;
         }
-        finally { _scanLock.Release(); }
+        finally { ReleaseScanLock(); }
     }
 
     public async Task RunMaintenanceAsync(Func<Task> action)
     {
         await _scanLock.WaitAsync();
         try { await action(); }
-        finally { _scanLock.Release(); }
+        finally { ReleaseScanLock(); }
+    }
+
+    private void ReleaseScanLock()
+    {
+        _scanLock.Release();
+        (ScanCoordinator Owner, ProfileOptions Profile, long Revision)? pending;
+        lock (_profileQueueLock) { pending = _pendingReevaluation; _pendingReevaluation = null; }
+        if (pending is not { } queued) return;
+        _ = Task.Run(async () => {
+            try
+            {
+                if (await queued.Owner.ReevaluateProfileAsync(queued.Profile, CancellationToken.None, queued.Revision)) queued.Owner.QueuedProfileEvaluated?.Invoke();
+            }
+            catch (Exception ex) { queued.Owner._logger.LogError(ex, "Bekleyen profil yeniden değerlendirilemedi."); }
+        });
     }
 
     private async Task MarkMissingAsync(AnnouncementSource source, List<SearchIlanItem> current)
     {
-        var removed = await _repository.MarkMissingAnnouncementsAsync(source, current.Select(i => i.Guid).ToArray());
-        foreach (var record in removed)
+        var observation = await _repository.ObserveSourceSnapshotAsync(source, current.Select(i => i.Guid).ToArray());
+        if (observation.IsSuspicious && observation.PreviousCount > 0)
+        {
+            _logger.LogWarning("{Source} listesi şüpheli: {Count}/{Previous}. Kaldırma işlemi atlandı.", source, current.Count, observation.PreviousCount);
+            await _repository.QueueNotificationAsync(new OutboxNotificationRecord {
+                DeduplicationKey = $"SourceHealth:{source}:{observation.WarningEpisode}", AnnouncementGuid = "system:source", NotificationType = "SourceHealth",
+                MessagePayload = $"⚠️ {source.DisplayName()} listesi boş veya olağandışı küçüldü ({current.Count}/{observation.PreviousCount}). Kaldırma işlemi atlandı; mevcut ilanlar korundu." });
+        }
+        foreach (var record in observation.RemovedAnnouncements)
+        {
+            if (!await IsInterestingAsync(record)) continue;
             await _repository.QueueNotificationAsync(new OutboxNotificationRecord {
                 DeduplicationKey = $"Removed:{record.Guid}:{record.LastCheckedAt:o}", AnnouncementGuid = record.Guid, NotificationType = "Removed",
                 MessagePayload = $"📭 Portaldan kaldırıldı: {System.Net.WebUtility.HtmlEncode(record.InstitutionName)} — {System.Net.WebUtility.HtmlEncode(record.Title)}" });
+        }
+    }
+
+    private async Task<bool> IsInterestingAsync(AnnouncementRecord record)
+    {
+        if (record.ApplicationStatus == ApplicationStatus.Skipped) return false;
+        if (record.ApplicationStatus is ApplicationStatus.Planning or ApplicationStatus.Applied) return true;
+        return (await _repository.GetLatestEvaluationsByAnnouncementAsync(record.Guid)).Any(e => e.Status is "Eligible" or "NeedsReview");
     }
 
     private PositionEvaluation EvaluateKamuPosition(AltIlanResponse position, string generalText, ProfileOptions profile, string key, DateTime? endDate, bool stale)

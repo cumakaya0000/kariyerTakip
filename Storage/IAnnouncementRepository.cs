@@ -22,6 +22,7 @@ public interface IAnnouncementRepository
     Task SaveApplicationTrackingAsync(string guid, ApplicationStatus status, string notes);
     Task MarkExpiredAnnouncementsAsync();
     Task<List<AnnouncementRecord>> MarkMissingAnnouncementsAsync(AnnouncementSource source, IReadOnlyCollection<string> currentGuids);
+    Task<SourceSnapshotResult> ObserveSourceSnapshotAsync(AnnouncementSource source, IReadOnlyCollection<string> currentGuids);
     Task BackupDatabaseAsync(string destination);
     Task MarkNotificationDisabledAsync(long id);
     Task<bool> HasNotificationBeenSentAsync(string deduplicationKey);

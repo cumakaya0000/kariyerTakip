@@ -116,7 +116,7 @@ public sealed class ProfileEditorControl : UserControl
                 await _store.SaveAsync(_catalog);
                 ActiveProfileChanged?.Invoke(_active.Profile);
                 if (ProfileSaved != null) await ProfileSaved(_active.Profile);
-                MessageBox.Show("Profil kaydedildi ve ilanlar yeniden değerlendirildi.", "Tamamlandı");
+                MessageBox.Show("Profil kaydedildi; ilanlar yeniden değerlendirme için alındı.", "Tamamlandı");
             }
             catch (Exception ex) { ShowError(ex); }
             finally { _save.Enabled = true; }

@@ -158,6 +158,7 @@ public class TelegramNotifier
             {
                 EligibilityStatus.Eligible => "✅",
                 EligibilityStatus.NeedsReview => "⚠️",
+                EligibilityStatus.LikelyIneligible => "◻️",
                 _ => "❌"
             };
 
@@ -165,6 +166,7 @@ public class TelegramNotifier
             {
                 EligibilityStatus.Eligible => "ŞARTLARA UYGUN",
                 EligibilityStatus.NeedsReview => "KONTROL GEREKLİ",
+                EligibilityStatus.LikelyIneligible => "BÜYÜK OLASILIKLA UYGUN DEĞİL",
                 _ => "UYGUN DEĞİL"
             };
 

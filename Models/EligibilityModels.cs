@@ -11,13 +11,15 @@ public enum EligibilityStatus
 {
     Eligible,      // Bilinen şartlarına uygun
     NeedsReview,   // Kontrol gerekli
-    Ineligible     // Uygun değil
+    Ineligible,    // Uygun değil
+    LikelyIneligible // Bölüm listesi büyük olasılıkla uyuşmuyor; otomatik bildirilmez
 }
 
 public class ConditionEvaluation
 {
     public bool IsPreference { get; set; }
     public bool IsInferred { get; set; }
+    public bool IsLikelyMismatch { get; set; }
     public string CriterionName { get; set; } = string.Empty;
     public ConditionStatus Status { get; set; }
     public string RequiredValue { get; set; } = string.Empty;

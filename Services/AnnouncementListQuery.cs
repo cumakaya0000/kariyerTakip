@@ -13,7 +13,7 @@ public static class AnnouncementListQuery
         {
             if (item.Record.Source != source) return false;
             if (eligibilityFilter > 0 && item.Status != (eligibilityFilter == 1 ? EligibilityStatus.Eligible :
-                eligibilityFilter == 2 ? EligibilityStatus.NeedsReview : EligibilityStatus.Ineligible)) return false;
+                eligibilityFilter == 2 ? EligibilityStatus.NeedsReview : eligibilityFilter == 3 ? EligibilityStatus.Ineligible : EligibilityStatus.LikelyIneligible)) return false;
             if (applicationFilter > 0 && (int)item.Record.ApplicationStatus != applicationFilter - 1) return false;
             var deadline = item.Record.EndDate;
             var active = item.Record.IsActive && (!deadline.HasValue || deadline >= nowUtc);
