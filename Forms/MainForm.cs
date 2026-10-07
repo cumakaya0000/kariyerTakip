@@ -445,6 +445,8 @@ public partial class MainForm : Form
                 };
 
                 var endStr = AppTime.Format(item.Record.EndDate);
+                if (item.Record.LastScanStatus == "Removed") statusText += " — PORTALDAN KALDIRILDI";
+                if (item.Record.LastScanStatus == "CancelledByPortal") statusText += " — İPTAL EDİLDİ";
                 var rowIdx = _gridAnnouncements.Rows.Add(_checkedAnnouncementGuids.Contains(item.Record.Guid), statusText, item.Record.InstitutionName, item.Record.Title, endStr,
                     ApplicationTrackingControl.DisplayStatus(item.Record.ApplicationStatus));
                 _gridAnnouncements.Rows[rowIdx].Tag = item;
@@ -625,9 +627,10 @@ public partial class MainForm : Form
                             ConditionStatus.Unsatisfied => "Karşılanmıyor",
                             _ => "Kontrol gerekli"
                         };
-                        AppendDetailText($"• {condition.CriterionName} — {conditionStatus}\n", textColor, bold: true);
+                        var label = condition.IsPreference ? "Tercih" : condition.IsInferred || string.IsNullOrEmpty(condition.SourceText) ? "Doğrulama gerekli" : "Metinden çıkarılan şart";
+                        AppendDetailText($"• {condition.CriterionName} — {conditionStatus} ({label})\n", textColor, bold: true);
                         AppendDetailText(condition.Explanation + "\n\n", textColor, indent: 18);
-                        if (item.Record.Source == AnnouncementSource.KamuIlan && !string.IsNullOrWhiteSpace(condition.SourceText))
+                        if (!string.IsNullOrWhiteSpace(condition.SourceText))
                             AppendDetailText($"İlandaki şart: {condition.SourceText}\n\n", textColor, indent: 18);
                     }
                 }

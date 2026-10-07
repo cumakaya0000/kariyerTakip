@@ -122,10 +122,10 @@ public class HardeningTests
         await repo.InitializeDatabaseAsync();
         var state = Path.Combine(temp.Path, "health.json");
         for (int i = 0; i < 4; i++) await new ApiHealthMonitor(repo, options, state).ObserveAsync(true, false, false);
-        Assert.Single(await repo.GetPendingNotificationsAsync());
+        Assert.Empty(await repo.GetPendingNotificationsAsync());
         await new ApiHealthMonitor(repo, options, state).ObserveAsync(false, false, true);
         for (int i = 0; i < 3; i++) await new ApiHealthMonitor(repo, options, state).ObserveAsync(false, true, false);
-        Assert.Equal(2, (await repo.GetPendingNotificationsAsync()).Count);
+        Assert.Single(await repo.GetPendingNotificationsAsync());
     }
 
     [Fact]

@@ -25,6 +25,7 @@ public class TelegramOptions
 
 public class ScanOptions
 {
+    public int EvaluationHistoryLimit { get; set; } = 20;
     public string SearchKeyword { get; set; } = string.Empty;
     public bool IncludeNeedsReview { get; set; } = true;
     public int RequestDelayMs { get; set; } = 300;

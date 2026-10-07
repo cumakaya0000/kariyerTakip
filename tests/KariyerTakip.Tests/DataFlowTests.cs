@@ -269,7 +269,7 @@ public class DataFlowTests
                 }
                 var editor = Field<ProfileEditorControl>(form, "_profileEditor");
                 var department = (ComboBox)typeof(ProfileEditorControl).GetField("_department", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(editor)!;
-                Assert.Equal(ComboBoxStyle.DropDownList, department.DropDownStyle);
+                Assert.Equal(ComboBoxStyle.DropDown, department.DropDownStyle);
                 var read = (ProfileOptions)typeof(ProfileEditorControl).GetMethod("ReadProfile", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(editor, null)!;
                 Assert.Equal(fixture.Profile.Value.Department, read.Department);
                 Assert.Equal(fixture.Profile.Value.CityPreferences, read.CityPreferences);

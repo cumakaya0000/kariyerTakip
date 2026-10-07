@@ -17,6 +17,11 @@ Bu proje resmî değildir; kişisel kullanım için dokümante edilmemiş kamuya
 - Birden fazla profil ve her profilde birden fazla KPSS puan türü/yılı.
 - Öğrenim, KPSS, tecrübe, yaş, askerlik, sertifika, ehliyet, şehir ve çalışma türü değerlendirmesi.
 - Profil değişince önbellekteki kadroları yerel olarak yeniden değerlendirme.
+- Şehir/çalışma türü tercihlerinden bağımsız yeterlilik; çakışan kurallarda kontrol gerekli sonucu ve kaynak cümleler.
+- Profil ekranında düzenlenebilir bölüm eş adları; ilan ayrıntısında doğrulanmış KPSS, yaş, tecrübe ve ehliyet şartlarını düzenleme tablosu.
+- Başvuracağım ilanlar için .ics takvimi; içerik değişikliklerini önce/şimdi karşılaştırma.
+- Veri bakımı ekranından JSON içe/dışa aktarma ve SQLite yedeği. İçe aktarma önce otomatik yedek oluşturur.
+- Kadro başına sınırlı değerlendirme geçmişi (`Scan.EvaluationHistoryLimit`, varsayılan 20); filtresiz ve başarılı taramalarda portaldan kaldırılan ilanları pasifleştirme.
 - Telegram bildirim kuyruğu, parça ilerlemesini saklama ve son başvuru hatırlatmaları.
 - Sistem tepsisine küçültme ve isteğe bağlı Windows ile başlatma.
 - Kompakt 1080×700 pencere (en az 900×600), daha küçük boşluklar ve açık/koyu tema; dar alanda satır kaydıran araç düğmeleri.

@@ -196,6 +196,9 @@ public partial class MainForm
         bulkActions.Controls.Add(selectAll);
         bulkActions.Controls.Add(clearSelection);
         bulkActions.Controls.Add(owner._btnExportAnnouncements);
+        var maintenance = new Button { Text = "Veri bakımı", AutoSize = true, Height = 32 };
+        maintenance.Click += (_, _) => owner.ShowDataMaintenance();
+        bulkActions.Controls.Add(maintenance);
         leftPanel.Controls.Add(owner._gridAnnouncements);
         leftPanel.Controls.Add(filterPanel);
         leftPanel.Controls.Add(bulkActions);
@@ -325,6 +328,12 @@ public partial class MainForm
         var feedback = new Button { Text = "Bu değerlendirme yanlış", AutoSize = true, Height = 32 };
         feedback.Click += async (_, _) => await owner.SaveEvaluationFeedbackAsync();
         pnlActions.Controls.Add(feedback);
+        var rules = new Button { Text = "Kadro şartlarını düzenle", AutoSize = true, Height = 32 };
+        rules.Click += async (_, _) => await owner.EditPositionRulesAsync();
+        pnlActions.Controls.Add(rules);
+        var diff = new Button { Text = "Son değişikliği karşılaştır", AutoSize = true, Height = 32 };
+        diff.Click += (_, _) => owner.ShowContentDiff();
+        pnlActions.Controls.Add(diff);
 
         owner._rtbDetailContent = new RichTextBox
         {

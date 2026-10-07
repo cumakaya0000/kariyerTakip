@@ -175,6 +175,7 @@ public class TelegramNotifier
             sb.AppendLine($"   • <b>KPSS Şartı:</b> {HtmlEncode(pos.ExtractedKpssText)}");
             sb.AppendLine($"   • <b>Tecrübe:</b> {HtmlEncode(pos.ExtractedExperienceText)}");
             sb.AppendLine($"   • <b>Sonuç / Gerekçe:</b> <i>{HtmlEncode(pos.SummaryReason)}</i>");
+            if (!pos.PreferencesMatch) sb.AppendLine("   • <b>Tercih uyuşmuyor:</b> Başvuru yeterliliği sağlansa da şehir veya çalışma türü tercih dışı.");
             sb.AppendLine();
         }
 

@@ -1,5 +1,7 @@
 {
-  "Department": "Bilgisayar Programcılığı",
+  "Department": "",
+  "DepartmentAliases": {},
+  "PositionRules": {},
   "EducationLevel": "Ön Lisans",
   "GraduationStatus": "Mezun",
   "KpssStatus": "Bilinmiyor",

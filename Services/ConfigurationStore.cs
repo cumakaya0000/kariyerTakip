@@ -90,5 +90,7 @@ public sealed class ConfigurationStore
 
     public static bool ProfileIsValid(ProfileOptions? profile) => profile != null && profile.Experience != null &&
         profile.KpssScores != null && profile.KpssScores.All(s => s != null) && profile.CityPreferences != null &&
-        profile.DrivingLicenses != null && profile.Certificates != null && profile.WorkPreferences != null;
+        profile.DrivingLicenses != null && profile.Certificates != null && profile.WorkPreferences != null &&
+        profile.DepartmentAliases != null && profile.DepartmentAliases.All(g => g.Value != null && g.Value.All(v => v != null)) &&
+        profile.PositionRules != null && profile.PositionRules.All(g => g.Value != null);
 }

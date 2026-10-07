@@ -10,10 +10,12 @@ public class AnnouncementRepository : IAnnouncementRepository
 {
     private readonly string _connectionString;
     private readonly ILogger<AnnouncementRepository> _logger;
+    private readonly int _historyLimit;
 
     public AnnouncementRepository(IOptions<AppConfig> config, ILogger<AnnouncementRepository> logger)
     {
         _logger = logger;
+        _historyLimit = Math.Clamp(config.Value.Scan.EvaluationHistoryLimit, 2, 1000);
         var dbPath = !string.IsNullOrWhiteSpace(config.Value.DatabasePath)
             ? (Path.IsPathFullyQualified(config.Value.DatabasePath) ? Path.GetFullPath(config.Value.DatabasePath) : Path.GetFullPath(config.Value.DatabasePath, AppPaths.BaseDirectory))
             : AppPaths.DatabaseFile;
@@ -129,9 +131,11 @@ public class AnnouncementRepository : IAnnouncementRepository
         await EnsureColumnExistsAsync(conn, "Announcements", "ApplicationNotes", "TEXT NOT NULL DEFAULT ''");
         await EnsureColumnExistsAsync(conn, "Announcements", "Source", "TEXT NOT NULL DEFAULT 'CareerGate'");
         await EnsureColumnExistsAsync(conn, "Announcements", "GeneralConditionsText", "TEXT NOT NULL DEFAULT ''");
+        await EnsureColumnExistsAsync(conn, "Announcements", "LastContentDiffJson", "TEXT NOT NULL DEFAULT ''");
         await EnsureColumnExistsAsync(conn, "Positions", "PositionKey", "TEXT");
         await EnsureColumnExistsAsync(conn, "Positions", "UpdatedAt", "TEXT NOT NULL DEFAULT '2026-01-01'");
         await EnsureColumnExistsAsync(conn, "Positions", "IsCurrent", "INTEGER NOT NULL DEFAULT 1");
+        await EnsureColumnExistsAsync(conn, "Positions", "QuotasJson", "TEXT NOT NULL DEFAULT ''");
         await EnsureColumnExistsAsync(conn, "Evaluations", "PositionKey", "TEXT NOT NULL DEFAULT ''");
         await EnsureColumnExistsAsync(conn, "NotificationOutbox", "DeduplicationKey", "TEXT");
         await EnsureColumnExistsAsync(conn, "NotificationOutbox", "NextChunkIndex", "INTEGER NOT NULL DEFAULT 0");
@@ -159,7 +163,12 @@ public class AnnouncementRepository : IAnnouncementRepository
             CREATE INDEX IF NOT EXISTS IX_Evaluations_Profile ON Evaluations(ProfileHash);
         ";
         await idxCmd.ExecuteNonQueryAsync();
-
+        using var cleanup = conn.CreateCommand();
+        cleanup.CommandText = @"DELETE FROM Evaluations WHERE Id IN (
+            SELECT Id FROM (SELECT Id, ROW_NUMBER() OVER (PARTITION BY AnnouncementGuid, PositionKey ORDER BY Id DESC) AS Rank FROM Evaluations)
+            WHERE Rank > @Limit)";
+        cleanup.Parameters.AddWithValue("@Limit", _historyLimit);
+        await cleanup.ExecuteNonQueryAsync();
         _logger.LogInformation("SQLite veritabanı şeması doğrulandı.");
     }
 
@@ -291,7 +300,7 @@ public class AnnouncementRepository : IAnnouncementRepository
 
         using var cmd = conn.CreateCommand();
         cmd.CommandText = @"SELECT Guid, InstitutionName, UnitName, Title, AnnouncementType, DetailUrl, ApplicationUrl,
-                                   StartDate, EndDate, RawGeneralText, RawContentHash, FirstSeenAt, LastCheckedAt, IsActive, LastScanStatus, ApplicationStatus, ApplicationNotes, Source, GeneralConditionsText
+                                   StartDate, EndDate, RawGeneralText, RawContentHash, FirstSeenAt, LastCheckedAt, IsActive, LastScanStatus, ApplicationStatus, ApplicationNotes, Source, GeneralConditionsText, LastContentDiffJson
                             FROM Announcements" + (activeOnly ? " WHERE IsActive = 1" : "") + " ORDER BY EndDate ASC";
 
         using var reader = await cmd.ExecuteReaderAsync();
@@ -309,7 +318,7 @@ public class AnnouncementRepository : IAnnouncementRepository
 
         using var cmd = conn.CreateCommand();
         cmd.CommandText = @"SELECT Guid, InstitutionName, UnitName, Title, AnnouncementType, DetailUrl, ApplicationUrl,
-                                   StartDate, EndDate, RawGeneralText, RawContentHash, FirstSeenAt, LastCheckedAt, IsActive, LastScanStatus, ApplicationStatus, ApplicationNotes, Source, GeneralConditionsText
+                                   StartDate, EndDate, RawGeneralText, RawContentHash, FirstSeenAt, LastCheckedAt, IsActive, LastScanStatus, ApplicationStatus, ApplicationNotes, Source, GeneralConditionsText, LastContentDiffJson
                             FROM Announcements WHERE Guid = @Guid";
         cmd.Parameters.AddWithValue("@Guid", guid);
 
@@ -331,10 +340,10 @@ public class AnnouncementRepository : IAnnouncementRepository
         cmd.CommandText = @"
             INSERT INTO Announcements (
                 Guid, InstitutionName, UnitName, Title, AnnouncementType, DetailUrl, ApplicationUrl,
-                StartDate, EndDate, RawGeneralText, RawContentHash, FirstSeenAt, LastCheckedAt, IsActive, LastScanStatus, Source, GeneralConditionsText
+                StartDate, EndDate, RawGeneralText, RawContentHash, FirstSeenAt, LastCheckedAt, IsActive, LastScanStatus, Source, GeneralConditionsText, LastContentDiffJson
             ) VALUES (
                 @Guid, @InstitutionName, @UnitName, @Title, @AnnouncementType, @DetailUrl, @ApplicationUrl,
-                @StartDate, @EndDate, @RawGeneralText, @RawContentHash, @FirstSeenAt, @LastCheckedAt, @IsActive, @LastScanStatus, @Source, @GeneralConditionsText
+                @StartDate, @EndDate, @RawGeneralText, @RawContentHash, @FirstSeenAt, @LastCheckedAt, @IsActive, @LastScanStatus, @Source, @GeneralConditionsText, @LastContentDiffJson
             )
             ON CONFLICT(Guid) DO UPDATE SET
                 InstitutionName = excluded.InstitutionName,
@@ -347,6 +356,7 @@ public class AnnouncementRepository : IAnnouncementRepository
                 EndDate = excluded.EndDate,
                 RawGeneralText = excluded.RawGeneralText,
                 GeneralConditionsText = excluded.GeneralConditionsText,
+                LastContentDiffJson = excluded.LastContentDiffJson,
                 RawContentHash = excluded.RawContentHash,
                 LastCheckedAt = excluded.LastCheckedAt,
                 IsActive = excluded.IsActive,
@@ -357,6 +367,7 @@ public class AnnouncementRepository : IAnnouncementRepository
         cmd.Parameters.AddWithValue("@Guid", record.Guid);
         cmd.Parameters.AddWithValue("@Source", record.Source.ToString());
         cmd.Parameters.AddWithValue("@GeneralConditionsText", record.GeneralConditionsText);
+        cmd.Parameters.AddWithValue("@LastContentDiffJson", record.LastContentDiffJson);
         cmd.Parameters.AddWithValue("@InstitutionName", record.InstitutionName);
         cmd.Parameters.AddWithValue("@UnitName", (object?)record.UnitName ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@Title", record.Title);
@@ -394,12 +405,13 @@ public class AnnouncementRepository : IAnnouncementRepository
             using var cmd = conn.CreateCommand();
             cmd.Transaction = tx;
             cmd.CommandText = @"
-                INSERT INTO Positions (PositionKey, AnnouncementGuid, Title, Unvan, Cities, Quota, RawText, UpdatedAt, IsCurrent)
-                VALUES (@PositionKey, @AnnouncementGuid, @Title, @Unvan, @Cities, @Quota, @RawText, @UpdatedAt, 1)
+                INSERT INTO Positions (PositionKey, AnnouncementGuid, Title, Unvan, Cities, Quota, RawText, UpdatedAt, IsCurrent, QuotasJson)
+                VALUES (@PositionKey, @AnnouncementGuid, @Title, @Unvan, @Cities, @Quota, @RawText, @UpdatedAt, 1, @QuotasJson)
                 ON CONFLICT(PositionKey) DO UPDATE SET
                     Title = excluded.Title,
                     Unvan = excluded.Unvan,
                     Cities = excluded.Cities,
+                    QuotasJson = excluded.QuotasJson,
                     Quota = excluded.Quota,
                     RawText = excluded.RawText,
                     UpdatedAt = excluded.UpdatedAt,
@@ -411,6 +423,7 @@ public class AnnouncementRepository : IAnnouncementRepository
             cmd.Parameters.AddWithValue("@Title", pos.Title);
             cmd.Parameters.AddWithValue("@Unvan", (object?)pos.Unvan ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@Cities", (object?)pos.Cities ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@QuotasJson", pos.QuotasJson);
             cmd.Parameters.AddWithValue("@Quota", pos.Quota);
             cmd.Parameters.AddWithValue("@RawText", (object?)pos.RawText ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@UpdatedAt", DateTime.UtcNow.ToString("o"));
@@ -428,7 +441,7 @@ public class AnnouncementRepository : IAnnouncementRepository
         await conn.OpenAsync();
 
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = @"SELECT Id, PositionKey, AnnouncementGuid, Title, Unvan, Cities, Quota, RawText, UpdatedAt
+        cmd.CommandText = @"SELECT Id, PositionKey, AnnouncementGuid, Title, Unvan, Cities, Quota, RawText, UpdatedAt, QuotasJson
                             FROM Positions WHERE AnnouncementGuid = @Guid AND IsCurrent = 1 ORDER BY Id ASC";
         cmd.Parameters.AddWithValue("@Guid", announcementGuid);
 
@@ -445,7 +458,8 @@ public class AnnouncementRepository : IAnnouncementRepository
                 Cities = reader.IsDBNull(5) ? string.Empty : reader.GetString(5),
                 Quota = reader.GetInt32(6),
                 RawText = reader.IsDBNull(7) ? string.Empty : reader.GetString(7),
-                UpdatedAt = AppTime.ParseUtc(reader.GetString(8))
+                UpdatedAt = AppTime.ParseUtc(reader.GetString(8)),
+                QuotasJson = reader.GetString(9)
             });
         }
         return list;
@@ -459,7 +473,9 @@ public class AnnouncementRepository : IAnnouncementRepository
         using var cmd = conn.CreateCommand();
         cmd.CommandText = @"
             INSERT INTO Evaluations (AnnouncementGuid, PositionKey, ProfileHash, Status, SummaryReason, DetailsJson, EvaluatedAt)
-            VALUES (@AnnouncementGuid, @PositionKey, @ProfileHash, @Status, @SummaryReason, @DetailsJson, @EvaluatedAt);";
+            VALUES (@AnnouncementGuid, @PositionKey, @ProfileHash, @Status, @SummaryReason, @DetailsJson, @EvaluatedAt);
+            DELETE FROM Evaluations WHERE AnnouncementGuid = @AnnouncementGuid AND PositionKey = @PositionKey
+                AND Id NOT IN (SELECT Id FROM Evaluations WHERE AnnouncementGuid = @AnnouncementGuid AND PositionKey = @PositionKey ORDER BY Id DESC LIMIT @HistoryLimit);";
 
         cmd.Parameters.AddWithValue("@AnnouncementGuid", evaluation.AnnouncementGuid);
         cmd.Parameters.AddWithValue("@PositionKey", evaluation.PositionKey);
@@ -468,6 +484,7 @@ public class AnnouncementRepository : IAnnouncementRepository
         cmd.Parameters.AddWithValue("@SummaryReason", (object?)evaluation.SummaryReason ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@DetailsJson", (object?)evaluation.DetailsJson ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@EvaluatedAt", evaluation.EvaluatedAt.ToString("o"));
+        cmd.Parameters.AddWithValue("@HistoryLimit", _historyLimit);
 
         await cmd.ExecuteNonQueryAsync();
     }
@@ -789,7 +806,8 @@ public class AnnouncementRepository : IAnnouncementRepository
             ApplicationStatus = Enum.TryParse<ApplicationStatus>(reader.GetString(15), out var status) ? status : ApplicationStatus.None,
             ApplicationNotes = reader.GetString(16),
             Source = Enum.TryParse<AnnouncementSource>(reader.GetString(17), out var source) ? source : AnnouncementSource.CareerGate,
-            GeneralConditionsText = reader.GetString(18)
+            GeneralConditionsText = reader.GetString(18),
+            LastContentDiffJson = reader.GetString(19)
         };
     }
 
@@ -825,6 +843,32 @@ public class AnnouncementRepository : IAnnouncementRepository
             cmd.Parameters.AddWithValue("@Guid", announcement.Guid);
             await cmd.ExecuteNonQueryAsync();
         }
+    }
+
+    public async Task<List<AnnouncementRecord>> MarkMissingAnnouncementsAsync(AnnouncementSource source, IReadOnlyCollection<string> currentGuids)
+    {
+        var current = currentGuids.ToHashSet(StringComparer.Ordinal);
+        var missing = (await GetAllAnnouncementsAsync(true)).Where(a => a.Source == source && !current.Contains(a.Guid)).ToList();
+        using var conn = CreateConnection(); await conn.OpenAsync();
+        using var tx = conn.BeginTransaction();
+        foreach (var announcement in missing)
+        {
+            using var cmd = conn.CreateCommand(); cmd.Transaction = tx;
+            cmd.CommandText = "UPDATE Announcements SET IsActive = 0, LastScanStatus = 'Removed' WHERE Guid = @Guid";
+            cmd.Parameters.AddWithValue("@Guid", announcement.Guid); await cmd.ExecuteNonQueryAsync();
+        }
+        await tx.CommitAsync();
+        return missing;
+    }
+
+    public async Task BackupDatabaseAsync(string destination)
+    {
+        var target = Path.GetFullPath(destination);
+        if (target.Equals(Path.GetFullPath(new SqliteConnectionStringBuilder(_connectionString).DataSource), StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("Yedek dosyası mevcut veritabanından farklı olmalıdır.");
+        using var source = CreateConnection(); await source.OpenAsync();
+        using var backup = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = target }.ToString());
+        await backup.OpenAsync(); source.BackupDatabase(backup);
     }
 
     private static EvaluationRecord ReadEvaluationRecord(SqliteDataReader reader)

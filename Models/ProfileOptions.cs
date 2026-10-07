@@ -2,7 +2,9 @@ namespace KariyerTakip.Models;
 
 public class ProfileOptions
 {
-    public string Department { get; set; } = "Bilgisayar Programcılığı";
+    public Dictionary<string, List<string>> DepartmentAliases { get; set; } = new();
+    public Dictionary<string, KariyerTakip.Services.PositionRuleOverrides> PositionRules { get; set; } = new();
+    public string Department { get; set; } = "";
     public string EducationLevel { get; set; } = "Ön Lisans";
     public string GraduationStatus { get; set; } = "Mezun"; // Mezun, Öğrenci, Bilinmiyor
     public string KpssStatus { get; set; } = "Bilinmiyor"; // Var, Yok, Bilinmiyor
@@ -24,8 +26,8 @@ public class ProfileOptions
 
 public class KpssScoreEntry
 {
-    public string ScoreType { get; set; } = "P93"; // P93, P3, P94, etc.
-    public int ExamYear { get; set; } = 2024;
+    public string ScoreType { get; set; } = ""; // Requires explicit entry
+    public int ExamYear { get; set; }
     public double Score { get; set; } = 0.0;
 }
 

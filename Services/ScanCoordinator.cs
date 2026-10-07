@@ -82,7 +82,7 @@ public class ScanCoordinator
             _logger.LogInformation("==================================================");
             _logger.LogInformation("🚀 KariyerTakip İlan Taraması Başlatılıyor...");
             _logger.LogInformation("Profil: {EducationLevel} - {Department} | KPSS: {KpssCount} puan kayıtlı",
-                _profile.EducationLevel, _profile.Department, _profile.KpssScores.Count);
+                scanProfile.EducationLevel, scanProfile.Department, scanProfile.KpssScores.Count);
             _logger.LogInformation("==================================================");
 
             await _repository.InitializeDatabaseAsync();
@@ -117,7 +117,8 @@ public class ScanCoordinator
                 return result;
             }
 
-            var announcements = activeListResult.Data ?? new List<SearchIlanItem>();
+            var careerCount = activeListResult.Data?.Count ?? 0;
+            var announcements = new List<SearchIlanItem>(activeListResult.Data ?? new());
             if (kamuListResult?.Data != null) announcements.AddRange(kamuListResult.Data);
             _logger.LogInformation("Kaynaklar: Kariyer Kapısı {CareerCount}, Kamu İlan (SBB) {KamuCount}",
                 announcements.Count(x => x.Source == AnnouncementSource.CareerGate), announcements.Count(x => x.Source == AnnouncementSource.KamuIlan));
@@ -156,9 +157,14 @@ public class ScanCoordinator
                 }
             });
             // 4. Dispatch pending notifications
+            if (string.IsNullOrWhiteSpace(_config.Scan.SearchKeyword))
+            {
+                if (activeListResult.IsSuccess) await MarkMissingAsync(AnnouncementSource.CareerGate, activeListResult.Data ?? new());
+                if (kamuListResult?.IsSuccess == true) await MarkMissingAsync(AnnouncementSource.KamuIlan, kamuListResult.Data ?? new());
+            }
             if (_health != null && activeListResult.IsSuccess) await _health.ObserveAsync(
-                announcements.All(x => x.Source != AnnouncementSource.CareerGate), careerParseErrors > 0,
-                announcements.Any(x => x.Source == AnnouncementSource.CareerGate) && careerParseErrors == 0 && careerFailures == 0);
+                careerCount == 0, careerParseErrors > 0,
+                careerParseErrors == 0 && careerFailures == 0);
             await _reminders.QueueAsync(scanProfile, cancellationToken);
             await _dispatcher.ProcessOutboxAsync(cancellationToken);
 
@@ -201,7 +207,7 @@ public class ScanCoordinator
             item.Guid, item.KurumAdi, item.IlanBaslik);
 
         var existing = await _repository.GetAnnouncementByGuidAsync(item.Guid);
-        var previousEvals = await _repository.GetLatestEvaluationsByAnnouncementAsync(item.Guid, profileHash);
+        var previousEvals = await _repository.GetLatestEvaluationsByAnnouncementAsync(item.Guid);
         var wasPreviouslyEligible = previousEvals.Any(e => e.Status == EligibilityStatus.Eligible.ToString());
 
         // 1. Fetch preview
@@ -214,7 +220,7 @@ public class ScanCoordinator
                     BitTarih = documentResult.Data.EndDate, BasvuruLinki = documentResult.Data.ApplicationUrl })
                 : ApiResult<IlanPreviewResponse>.Fail(documentResult?.Status ?? ApiCallStatus.ParseError, documentResult?.ErrorMessage ?? "PDF okunamadı.")
             : await _client.GetAnnouncementPreviewAsync(item.Guid, cancellationToken);
-        var generalText = previewResult.Data?.IlanMetni ?? existing?.RawGeneralText ?? (isKamu ? documentResult?.ErrorMessage ?? "PDF okunamadı." : string.Empty);
+        var generalText = previewResult.Data?.IlanMetni ?? existing?.RawGeneralText ?? string.Empty;
         var conditionsText = isKamu ? documentResult?.Data?.GeneralConditionsText ?? existing?.GeneralConditionsText ?? "" : generalText;
 
         // 2. Fetch positions
@@ -242,7 +248,7 @@ public class ScanCoordinator
         {
             cachedDbPositions = null;
             positionsToUse.Add(new AltIlanResponse { IlanBaslik = item.IlanBaslik,
-                IlanMetni = PdfAnnouncementReader.ReviewMarker + "\n" + (documentResult?.ErrorMessage ?? "PDF kadroları okunamadı.") });
+                IlanMetni = PdfAnnouncementReader.ReviewMarker });
         }
         if (isKamu && documentResult?.IsSuccess != true)
             _logger.LogWarning("Kamu İlan PDF okunamadı: {Title}. {Reason}", item.IlanBaslik, documentResult?.ErrorMessage);
@@ -259,6 +265,8 @@ public class ScanCoordinator
         }
 
         result.ProcessedCount++;
+        var cancelledByPortal = System.Text.RegularExpressions.Regex.IsMatch(
+            (item.SonDurumu ?? "").Trim().ToLower(new System.Globalization.CultureInfo("tr-TR")), @"^iptal(?:\s|$)");
 
         var detailUrl = isKamu ? documentResult?.Data?.PdfUrl ?? item.DetailUrl : $"{_config.PortalBaseUrl.TrimEnd('/')}/IlanDetay?i={item.Guid}";
         var applicationUrl = !string.IsNullOrWhiteSpace(previewResult.Data?.EDevletServisURL)
@@ -268,6 +276,8 @@ public class ScanCoordinator
 
         var rawCombinedContent = $"{generalText}\n" + string.Join("\n", positionsToUse.Select(p => JsonSerializer.Serialize(p)).OrderBy(p => p, StringComparer.Ordinal));
         var contentHash = _changeDetector.ComputeHash(rawCombinedContent);
+        var contentReliable = previewResult.IsSuccess && posResult.IsSuccess;
+        if (!contentReliable) contentHash = existing?.RawContentHash ?? "";
 
         var record = new AnnouncementRecord
         {
@@ -290,17 +300,27 @@ public class ScanCoordinator
             RawContentHash = contentHash,
             FirstSeenAt = existing?.FirstSeenAt ?? DateTime.UtcNow,
             LastCheckedAt = DateTime.UtcNow,
-            IsActive = true,
-            LastScanStatus = previewResult.IsSuccess && posResult.IsSuccess ? "Success" : "Partial"
+            IsActive = !cancelledByPortal,
+            LastScanStatus = cancelledByPortal ? "CancelledByPortal" : previewResult.IsSuccess && posResult.IsSuccess ? "Success" : "Partial"
         };
-
-        await _repository.UpsertAnnouncementAsync(record);
 
         // Build stable position records
         var previousPositions = cachedDbPositions ?? await _repository.GetPositionsByAnnouncementGuidAsync(item.Guid);
         var dbPositions = cachedDbPositions ?? PositionIdentity.Build(item.Guid, positionsToUse, previousPositions);
+        var differences = existing != null && contentReliable && !string.IsNullOrEmpty(existing.RawContentHash) && existing.RawContentHash != contentHash
+            ? AnnouncementDiff.Build(existing, record, previousPositions, dbPositions) : new List<ContentDifference>();
+        record.LastContentDiffJson = differences.Count > 0 ? JsonSerializer.Serialize(differences) : existing?.LastContentDiffJson ?? "";
+        await _repository.UpsertAnnouncementAsync(record);
 
         await _repository.UpsertPositionsAsync(item.Guid, dbPositions);
+        if (cancelledByPortal)
+        {
+            if (existing?.IsActive == true)
+                await _repository.QueueNotificationAsync(new OutboxNotificationRecord {
+                    DeduplicationKey = $"Cancelled:{record.Guid}:{existing.LastCheckedAt:o}", AnnouncementGuid = record.Guid, NotificationType = "Removed",
+                    MessagePayload = $"📭 Portalda iptal edildi: {System.Net.WebUtility.HtmlEncode(record.Title)}" });
+            return result;
+        }
 
         // 3. Evaluate positions against user profile
         var evaluatedPositions = new List<PositionEvaluation>();
@@ -331,6 +351,10 @@ public class ScanCoordinator
         var isCurrentlyEligible = evaluatedPositions.Any(e => e.Status == EligibilityStatus.Eligible);
 
         var changeType = _changeDetector.DetectChanges(existing, record, contentHash, wasPreviouslyEligible, isCurrentlyEligible);
+        if (existing != null && string.IsNullOrEmpty(existing.RawContentHash) && changeType == ChangeType.ContentChanged) changeType = ChangeType.None;
+        if (changeType == ChangeType.NewlyEligible && previousEvals.Any(e => e.ProfileHash != profileHash)) changeType = ChangeType.None;
+        if (isCurrentlyEligible) result.EligibleCount++;
+        else if (evaluatedPositions.Any(p => p.Status == EligibilityStatus.NeedsReview)) result.NeedsReviewCount++;
 
         var matchingPositions = evaluatedPositions
             .Where(p => p.Status == EligibilityStatus.Eligible ||
@@ -340,11 +364,6 @@ public class ScanCoordinator
         if (matchingPositions.Any())
         {
             var isAnyEligible = matchingPositions.Any(p => p.Status == EligibilityStatus.Eligible);
-            if (isAnyEligible)
-                result.EligibleCount++;
-            else
-                result.NeedsReviewCount++;
-
             _logger.LogInformation("🎯 UYGUN / DİKKAT ÇEKEN İLAN BULUNDU! [{Kurum}] ({Count} kadro)", item.KurumAdi, matchingPositions.Count);
 
             var notificationType = changeType switch
@@ -355,7 +374,8 @@ public class ScanCoordinator
                 _ => "New"
             };
 
-            var eventVersion = _changeDetector.ComputeHash($"{contentHash}|{record.EndDate:o}|{profileHash}")[..20];
+            if (changeType == ChangeType.None) return result;
+            var eventVersion = _changeDetector.ComputeHash($"{contentHash}|{record.EndDate:o}")[..20];
             var dedupKey = _changeDetector.GenerateDeduplicationKey(item.Guid, "all", notificationType, eventVersion);
             var alreadySent = await _repository.HasNotificationBeenSentAsync(dedupKey);
 
@@ -370,6 +390,7 @@ public class ScanCoordinator
                 };
 
                 var message = _telegramNotifier.FormatAnnouncementMessage(record, matchingPositions, header);
+                if (differences.Count > 0) message += "\n\n" + System.Net.WebUtility.HtmlEncode(AnnouncementDiff.Summary(differences));
 
                 await _repository.QueueNotificationAsync(new OutboxNotificationRecord
                 {
@@ -387,13 +408,19 @@ public class ScanCoordinator
 
     public async Task ReevaluateCachedAnnouncementsAsync(ProfileOptions profile)
     {
+        await _scanLock.WaitAsync();
+        try
+        {
         var announcements = await _repository.GetAllAnnouncementsAsync(activeOnly: true);
         var profileHash = _changeDetector.ComputeHash(JsonSerializer.Serialize(profile));
 
         _logger.LogInformation("Önbellekteki {Count} aktif ilan yeni profile göre yerel olarak yeniden değerlendiriliyor...", announcements.Count);
 
+        var newlyEligible = 0;
         foreach (var ann in announcements)
         {
+            var previous = await _repository.GetLatestEvaluationsByAnnouncementAsync(ann.Guid);
+            var eligible = false;
             var positions = await _repository.GetPositionsByAnnouncementGuidAsync(ann.Guid);
             foreach (var pos in positions)
             {
@@ -403,6 +430,7 @@ public class ScanCoordinator
                     _evaluator.EvaluatePosition(altIlan, ann.RawGeneralText, profile, pos.PositionKey, ann.EndDate);
                 eval.Cities = pos.Cities;
                 eval.TotalQuota = pos.Quota;
+                eligible |= eval.Status == EligibilityStatus.Eligible;
 
                 await _repository.SaveEvaluationAsync(new EvaluationRecord
                 {
@@ -415,8 +443,31 @@ public class ScanCoordinator
                     EvaluatedAt = DateTime.UtcNow
                 });
             }
+            if (eligible && !previous.Any(e => e.Status == nameof(EligibilityStatus.Eligible))) newlyEligible++;
         }
+        await _repository.QueueNotificationAsync(new OutboxNotificationRecord {
+            DeduplicationKey = $"ProfileSummary:{Guid.NewGuid():N}", AnnouncementGuid = "system:profile", NotificationType = "ProfileSummary",
+            MessagePayload = $"Profil güncellendi: {announcements.Count} ilan yeniden değerlendirildi, {newlyEligible} ilan yeni uygun hale geldi." });
+        await _dispatcher.ProcessOutboxAsync();
         _logger.LogInformation("Yeniden değerlendirme tamamlandı.");
+        }
+        finally { _scanLock.Release(); }
+    }
+
+    public async Task RunMaintenanceAsync(Func<Task> action)
+    {
+        await _scanLock.WaitAsync();
+        try { await action(); }
+        finally { _scanLock.Release(); }
+    }
+
+    private async Task MarkMissingAsync(AnnouncementSource source, List<SearchIlanItem> current)
+    {
+        var removed = await _repository.MarkMissingAnnouncementsAsync(source, current.Select(i => i.Guid).ToArray());
+        foreach (var record in removed)
+            await _repository.QueueNotificationAsync(new OutboxNotificationRecord {
+                DeduplicationKey = $"Removed:{record.Guid}:{record.LastCheckedAt:o}", AnnouncementGuid = record.Guid, NotificationType = "Removed",
+                MessagePayload = $"📭 Portaldan kaldırıldı: {System.Net.WebUtility.HtmlEncode(record.InstitutionName)} — {System.Net.WebUtility.HtmlEncode(record.Title)}" });
     }
 
     private PositionEvaluation EvaluateKamuPosition(AltIlanResponse position, string generalText, ProfileOptions profile, string key, DateTime? endDate, bool stale)

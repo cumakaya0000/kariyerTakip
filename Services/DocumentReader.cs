@@ -73,6 +73,7 @@ public class DocumentReader
             }
         }
 
-        return clauses;
+        return clauses.SelectMany(c => Regex.Split(c, @"(?<!\d)\.(?:\s+|$)|;"))
+            .Select(c => c.Trim()).Where(c => c.Length > 0).ToList();
     }
 }

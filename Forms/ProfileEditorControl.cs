@@ -24,6 +24,8 @@ public sealed class ProfileEditorControl : UserControl
     private readonly MultiChoiceControl _cities = new(ProfileChoices.Cities, "Seçim yoksa tüm Türkiye'deki ilanlar değerlendirilir.");
     private readonly MultiChoiceControl _licenses = new(ProfileChoices.Licenses, "Ehliyetiniz yoksa listeyi boş bırakın.");
     private readonly TextBox _certificates = new();
+    private readonly TextBox _aliases = new() { Multiline = true, Height = 80, ScrollBars = ScrollBars.Vertical,
+        PlaceholderText = "Her satır: Bölüm adı = eş ad 1; eş ad 2" };
     private readonly CheckedListBox _work = new() { Height = 80, CheckOnClick = true };
     private readonly Button _save = new() { Text = "Profili kaydet ve ilanları yeniden değerlendir", AutoSize = true, Height = 34 };
     private bool _loading;
@@ -48,6 +50,8 @@ public sealed class ProfileEditorControl : UserControl
         profileActions.Controls.AddRange(new Control[] { _profiles, _newName, add });
         AddRow(layout, "Aktif profil", profileActions);
         AddRow(layout, "Bölüm", _department);
+        _department.DropDownStyle = ComboBoxStyle.DropDown;
+        AddRow(layout, "Bölüm eş adları", _aliases);
         AddRow(layout, "Öğrenim düzeyi", _level);
         AddRow(layout, "Mezuniyet", _graduation);
         AddRow(layout, "KPSS durumu", _kpssStatus);
@@ -119,6 +123,15 @@ public sealed class ProfileEditorControl : UserControl
         };
     }
     public void SetBusy(bool busy) { Enabled = !busy; }
+    public async Task SavePositionRulesAsync(string key, PositionRuleOverrides? rules)
+    {
+        _active.Profile = ReadProfile();
+        if (rules == null) _active.Profile.PositionRules.Remove(key);
+        else _active.Profile.PositionRules[key] = rules;
+        await _store.SaveAsync(_catalog);
+        ActiveProfileChanged?.Invoke(_active.Profile);
+        if (ProfileSaved != null) await ProfileSaved(_active.Profile);
+    }
     private void PopulateProfiles()
     {
         _loading = true;
@@ -131,7 +144,8 @@ public sealed class ProfileEditorControl : UserControl
     {
         var p = _active.Profile;
         if (!string.IsNullOrWhiteSpace(p.Department) && !_department.Items.Contains(p.Department)) _department.Items.Add(p.Department);
-        _department.SelectedItem = p.Department; _level.SelectedItem = p.EducationLevel; _graduation.SelectedItem = p.GraduationStatus;
+        _department.Text = p.Department; _level.SelectedItem = p.EducationLevel; _graduation.SelectedItem = p.GraduationStatus;
+        _aliases.Text = string.Join(Environment.NewLine, p.DepartmentAliases.Select(g => g.Key + " = " + string.Join("; ", g.Value)));
         _kpssStatus.SelectedItem = p.KpssStatus; _military.SelectedItem = p.MilitaryStatus;
         _scores.Rows.Clear();
         foreach (var score in p.KpssScores)
@@ -164,11 +178,20 @@ public sealed class ProfileEditorControl : UserControl
             scores.Add(new KpssScoreEntry { ScoreType = type, ExamYear = year, Score = score });
         }
         if (_birth.Checked && _birth.Value.Date > DateTime.Today) throw new InvalidOperationException("Doğum tarihi gelecekte olamaz.");
-        if (_department.SelectedItem is not string department || string.IsNullOrWhiteSpace(department))
-            throw new InvalidOperationException("Listeden bölümünüzü seçin.");
+        var department = _department.Text.Trim();
+        if (string.IsNullOrWhiteSpace(department)) throw new InvalidOperationException("Bölümünüzü yazın veya seçin.");
+        var aliases = new Dictionary<string, List<string>>();
+        foreach (var line in _aliases.Lines.Where(l => !string.IsNullOrWhiteSpace(l)))
+        {
+            var parts = line.Split('=', 2, StringSplitOptions.TrimEntries);
+            if (parts.Length != 2 || parts[0].Length < 3 || !aliases.TryAdd(parts[0], parts[1].Split(';', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries).ToList()))
+                throw new InvalidOperationException("Bölüm eş adlarını benzersiz 'Bölüm = eş ad; eş ad' satırları olarak yazın.");
+        }
         return new ProfileOptions
         {
             Department = department, EducationLevel = _level.SelectedItem?.ToString() ?? "Ön Lisans",
+            DepartmentAliases = aliases,
+            PositionRules = _active.Profile.PositionRules,
             GraduationStatus = _graduation.SelectedItem?.ToString() ?? "Bilinmiyor", KpssStatus = _kpssStatus.SelectedItem?.ToString() ?? "Bilinmiyor",
             KpssScores = scores, BirthDate = _birth.Checked ? _birth.Value.Date : null, MilitaryStatus = _military.SelectedItem?.ToString() ?? "Bilinmiyor",
             Experience = new ExperienceEntry { TotalMonths = (int)_months.Value, Field = _field.Text.Trim(), IsKnown = _known.Checked, IsDocumented = _documented.Checked },

@@ -2,6 +2,7 @@ namespace KariyerTakip.Models;
 
 public class AnnouncementRecord
 {
+    public string LastContentDiffJson { get; set; } = "";
     public AnnouncementSource Source { get; set; } = AnnouncementSource.CareerGate;
     public string Guid { get; set; } = string.Empty;
     public string InstitutionName { get; set; } = string.Empty;
@@ -27,6 +28,7 @@ public enum ApplicationStatus { None, Planning, Applied, Skipped }
 
 public class PositionRecord
 {
+    public string QuotasJson { get; set; } = "";
     public long Id { get; set; }
     public string PositionKey { get; set; } = string.Empty; // Stable unique identifier (e.g. Guid_PosIndex_Hash)
     public string AnnouncementGuid { get; set; } = string.Empty;

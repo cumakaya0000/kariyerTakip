@@ -28,12 +28,12 @@ public sealed class ApiHealthMonitor
         state.ParseFailures = parseFailure ? state.ParseFailures + 1 : 0;
         if (healthy) state.Episode = Guid.NewGuid().ToString("N");
         var threshold = Math.Max(1, _config.Scan.ApiWarningThreshold);
-        if (state.EmptyRuns >= threshold || state.ParseFailures >= threshold)
+        if (state.ParseFailures >= threshold)
         {
             await _repository.QueueNotificationAsync(new OutboxNotificationRecord
             {
                 DeduplicationKey = $"ApiHealth:{state.Episode}", AnnouncementGuid = "system:api", NotificationType = "ApiHealth",
-                MessagePayload = $"⚠️ API değişmiş olabilir: üst üste {threshold} taramada ilan listesi boş veya yanıt ayrıştırılamadı. Arama filtresini ve günlükleri kontrol edin; resmî portalı inceleyin."
+                MessagePayload = $"⚠️ API değişmiş olabilir: üst üste {threshold} taramada yanıt ayrıştırılamadı. Günlükleri ve resmî portalı kontrol edin."
             });
         }
         await AtomicFile.WriteAsync(_path, JsonSerializer.Serialize(state));

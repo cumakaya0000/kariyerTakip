@@ -55,11 +55,6 @@ public class ChangeDetector
             return ChangeType.NewAnnouncement;
         }
 
-        if (!wasPreviouslyEligible && isCurrentlyEligible)
-        {
-            return ChangeType.NewlyEligible;
-        }
-
         if (existingRecord.EndDate != currentRecord.EndDate)
         {
             return ChangeType.DeadlineChanged;
@@ -69,6 +64,8 @@ public class ChangeDetector
         {
             return ChangeType.ContentChanged;
         }
+
+        if (!wasPreviouslyEligible && isCurrentlyEligible) return ChangeType.NewlyEligible;
 
         return ChangeType.None;
     }

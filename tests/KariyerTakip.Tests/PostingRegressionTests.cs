@@ -46,7 +46,8 @@ public sealed class PostingRegressionTests
         var evaluation = evaluator.EvaluatePosition(new AltIlanResponse { IlanBaslik = "Sözleşmeli Tekniker", IlanMetni = "Bilgisayar Programcılığı ön lisans mezunu olmak. CCNA sertifikasına sahip olmak." }, "", profile);
         Assert.Contains(evaluation.Conditions, c => c.CriterionName == "Çalışma Tercihi" && c.Status == ConditionStatus.Unsatisfied);
         Assert.Contains(evaluation.Conditions, c => c.CriterionName == "Sertifika / Belge" && c.Status == ConditionStatus.Satisfied);
-        Assert.Equal(EligibilityStatus.Ineligible, evaluation.Status);
+        Assert.Equal(EligibilityStatus.NeedsReview, evaluation.Status);
+        Assert.False(evaluation.PreferencesMatch);
     }
 
     [Fact]

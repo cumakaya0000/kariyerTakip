@@ -1,5 +1,18 @@
 # Değişiklikler
 
+## Yerel geliştirme — 2026-10-07
+
+- KPSS muafiyeti kadro şartlarını ezmez; açık muafiyet cümlesi gerekir. Yıl listeleri/aralıkları ve en yüksek geçerli puan desteklenir; puan türü tam eşleştirilir.
+- Tecrübe/yaş yazım çeşitleri, tecrübe alt/üst sınırları, mezuniyet durumu ve öğrenim düzeyi kontrolleri genişletildi. Çakışan veya çıkarılamayan şartlar kontrol gerektirir.
+- Şehir ve çalışma türü tercihleri yeterlilikten ayrıldı. Ayrıntılarda kaynak cümle ve çıkarım bilgisi gösterilir.
+- Bölüm eş adları profil ekranından, doğrulanan kadro şartları ilan ayrıntısındaki düzenleme tablosundan değiştirilebilir.
+- Profil değişiminde tek Telegram özeti gönderilir; profil kimliği ilan bildirimlerinin tekrar anahtarından çıkarıldı. Tarih değişikliği yeni uygunluk durumundan önce bildirilir.
+- Başarılı, filtresiz kaynak taramasında listeden kaldırılan ilanlar pasifleştirilir ve bildirilir. Başarısız/filtreli taramalar bu kontrolü uygulamaz.
+- PDF okuma hataları içerik hash'ine katılmaz; kontenjanlar yapılandırılmış JSON olarak saklanır. Son içerik değişikliği önce/şimdi tablosunda ve Telegram özetinde gösterilir.
+- Başvuracağım ilanlar için .ics aktarımı ve kalan süre; JSON arşiv aktarımı, içe aktarma öncesi otomatik SQLite yedeği ve elle veritabanı yedeği eklendi.
+- Değerlendirme geçmişi kadro başına son 20 kayıtla sınırlıdır; `Scan.EvaluationHistoryLimit` ile değiştirilebilir. Geçerli boş API listeleri değişiklik alarmı üretmez.
+- Regresyon havuzu KPSS, yaş, tecrübe, tercihler, bölüm eşleştirme, önbellek, bildirim tekrarları ve veri bakımını kapsayacak şekilde genişletildi.
+
 ## 1.1.0 — Standart Windows kurulumu — 2026-10-05
 
 - Windows Program Files altında tüm kullanıcılar için kurulum ve yalnızca mevcut hesaba kurma seçeneği eklendi; x86/x64/ARM64 uygulamaları aynı pakette seçilir.

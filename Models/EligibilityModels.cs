@@ -16,6 +16,8 @@ public enum EligibilityStatus
 
 public class ConditionEvaluation
 {
+    public bool IsPreference { get; set; }
+    public bool IsInferred { get; set; }
     public string CriterionName { get; set; } = string.Empty;
     public ConditionStatus Status { get; set; }
     public string RequiredValue { get; set; } = string.Empty;
@@ -26,6 +28,7 @@ public class ConditionEvaluation
 
 public class PositionEvaluation
 {
+    public bool PreferencesMatch => !Conditions.Any(c => c.IsPreference && c.Status == ConditionStatus.Unsatisfied);
     public string PositionKey { get; set; } = string.Empty;
     public string PositionTitle { get; set; } = string.Empty;
     public string? Unvan { get; set; }

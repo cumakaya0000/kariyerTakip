@@ -41,7 +41,8 @@ public static class PositionIdentity
                 {
                     PositionKey = key, AnnouncementGuid = guid, Title = p.IlanBaslik ?? "Kadro", Unvan = p.Unvan ?? "",
                     Cities = p.KontenjanList == null ? "" : string.Join(", ", p.KontenjanList.Select(k => $"{k.Il} ({k.Kontenjan})")),
-                    Quota = p.KontenjanList?.Sum(k => k.Kontenjan) ?? 0, RawText = p.IlanMetni ?? "", UpdatedAt = DateTime.UtcNow
+                    Quota = p.KontenjanList?.Sum(k => k.Kontenjan) ?? 0, RawText = p.IlanMetni ?? "", UpdatedAt = DateTime.UtcNow,
+                    QuotasJson = JsonSerializer.Serialize(p.KontenjanList ?? new())
                 };
             }
         }
@@ -51,7 +52,8 @@ public static class PositionIdentity
     public static AltIlanResponse FromCache(PositionRecord position) => new()
     {
         IlanBaslik = position.Title, Unvan = position.Unvan, IlanMetni = position.RawText,
-        KontenjanList = Regex.Matches(position.Cities, @"(?<city>[^,]+?)\s*\((?<quota>\d+)\)(?:,|$)")
+        KontenjanList = !string.IsNullOrWhiteSpace(position.QuotasJson) ? JsonSerializer.Deserialize<List<KontenjanItem>>(position.QuotasJson) ?? new() :
+            Regex.Matches(position.Cities, @"(?<city>.+?)\s*\((?<quota>\d+)\)(?:,\s*|$)")
             .Select(m => new KontenjanItem { Il = m.Groups["city"].Value.Trim(), Kontenjan = int.Parse(m.Groups["quota"].Value) }).ToList()
     };
 }
